@@ -1,0 +1,57 @@
+{
+  "id": "runarcana-sync",
+  "title": "runarcana-sync",
+  "version": "0.0.1",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14"
+  },
+  "url": "https://rpg-fichas-centralizadas.web.app",
+  "flags": {
+    "canUpload": true
+  },
+  "authors": [
+    {
+      "name": "Runarcana Team"
+    }
+  ],
+  "esmodules": [
+    "dist/module.js"
+  ],
+  "packs": [
+    {
+      "name": "pack-1",
+      "label": "Regras",
+      "path": "packs/pack-1",
+      "type": "Actor",
+      "system": "dnd5e",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      }
+    },
+    {
+      "name": "pack-2",
+      "label": "Equipamentos",
+      "path": "packs/pack-2",
+      "type": "Item",
+      "system": "dnd5e",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      }
+    },
+    {
+      "name": "pack-3",
+      "label": "Personagem",
+      "path": "packs/pack-3",
+      "type": "JournalEntry",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      },
+      "system": "dnd5e"
+    }
+  ],
+  "description": ""
+}
