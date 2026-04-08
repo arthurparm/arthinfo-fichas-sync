@@ -1,5 +1,11 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 export class FirebaseClient {
@@ -17,5 +23,23 @@ export class FirebaseClient {
 
   async loginWithGoogle() {
     return signInWithPopup(this.auth, this.googleProvider);
+  }
+
+  async loginWithGoogleRedirect() {
+    return signInWithRedirect(this.auth, this.googleProvider);
+  }
+
+  async loginWithGooglePopupOrRedirect() {
+    try {
+      await this.loginWithGoogle();
+      return 'popup';
+    } catch (err) {
+      if (err?.code === 'auth/popup-blocked') {
+        await this.loginWithGoogleRedirect();
+        return 'redirect';
+      }
+
+      throw err;
+    }
   }
 }

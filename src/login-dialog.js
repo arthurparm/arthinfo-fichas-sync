@@ -27,8 +27,12 @@ export class RunarcanaLoginDialog {
         icon: "fab fa-google",
         callback: async (event, button, dialog) => {
           try {
-            await this.firebaseClient.loginWithGoogle();
-            ui.notifications.info("Runarcana Sync: Login com Google realizado com sucesso!");
+            const mode = await this.firebaseClient.loginWithGooglePopupOrRedirect();
+            if (mode === 'popup') {
+              ui.notifications.info("Runarcana Sync: Login com Google realizado com sucesso!");
+            } else {
+              ui.notifications.warn("Runarcana Sync: Popup bloqueado. Continuando o login com redirecionamento.");
+            }
           } catch (err) {
             ui.notifications.error("Erro no login com Google: " + err.message);
           }
