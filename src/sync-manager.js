@@ -86,6 +86,17 @@ export class SyncManager {
     this.debouncedItemUpdate = debounce(this._executeItemUpdate.bind(this), 1000);
   }
 
+  notifyFirestoreError(action, error, actor) {
+    console.error(`Runarcana Sync | Falha ao ${action} a ficha ${actor?.name || actor?.id || 'desconhecida'}:`, error);
+
+    if (error?.code === 'permission-denied') {
+      ui.notifications.error(`Runarcana Sync: sem permissão no Firestore para ${action} a ficha ${actor?.name || actor?.id || ''}.`);
+      return;
+    }
+
+    ui.notifications.error(`Runarcana Sync: erro ao ${action} a ficha ${actor?.name || actor?.id || ''}: ${error?.message || 'erro desconhecido'}`);
+  }
+
   startListening(actor) {
     const draftId = actor.getFlag('runarcana-sync', 'draftId');
     if (!draftId || this.subscriptions.has(actor.id)) return;
@@ -184,6 +195,9 @@ export class SyncManager {
       }
 
       this.activeSyncs.delete(actor.id);
+    }, (error) => {
+      this.activeSyncs.delete(actor.id);
+      this.notifyFirestoreError('sincronizar', error, actor);
     });
 
     this.subscriptions.set(actor.id, unsub);
@@ -214,7 +228,12 @@ export class SyncManager {
     }
 
     if (Object.keys(updatePayload).length > 0) {
-      await updateDoc(docRef, updatePayload);
+      try {
+        await updateDoc(docRef, updatePayload);
+      } catch (error) {
+        this.notifyFirestoreError('salvar', error, actor);
+        throw error;
+      }
     }
   }
 
@@ -239,6 +258,11 @@ export class SyncManager {
     
     const docRef = doc(this.firebaseClient.db, 'character_drafts', draftId);
     // Envia o array de itens completo para o Firebase, incluindo as activities complexas
-    await updateDoc(docRef, { items: itemsData });
+    try {
+      await updateDoc(docRef, { items: itemsData });
+    } catch (error) {
+      this.notifyFirestoreError('salvar os itens de', error, actor);
+      throw error;
+    }
   }
 }
