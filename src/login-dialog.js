@@ -1,13 +1,19 @@
-export class RunarcanaLoginDialog extends Dialog {
+export class RunarcanaLoginDialog {
   constructor(firebaseClient) {
-    super({
-      title: "Runarcana Sync Login",
+    this.firebaseClient = firebaseClient;
+  }
+
+  async render(force = true) {
+    const { DialogV2 } = foundry.applications.api;
+
+    return DialogV2.wait({
+      window: { title: "Runarcana Sync Login" },
       content: `
         <form>
           <p>Entre com email e senha ou use a conta Google habilitada no Firebase Authentication.</p>
           <div class="form-group">
             <label>Email:</label>
-            <input type="text" name="email" />
+            <input type="text" name="email" autofocus />
           </div>
           <div class="form-group">
             <label>Senha:</label>
@@ -15,34 +21,34 @@ export class RunarcanaLoginDialog extends Dialog {
           </div>
         </form>
       `,
-      buttons: {
-        google: {
-          icon: '<i class="fab fa-google"></i>',
-          label: "Google",
-          callback: async () => {
-            try {
-              await firebaseClient.loginWithGoogle();
-              ui.notifications.info("Runarcana Sync: Login com Google realizado com sucesso!");
-            } catch (err) {
-              ui.notifications.error("Erro no login com Google: " + err.message);
-            }
-          }
-        },
-        login: {
-          icon: '<i class="fas fa-check"></i>',
-          label: "Login",
-          callback: async (html) => {
-            const email = html.find('[name="email"]').val();
-            const pass = html.find('[name="password"]').val();
-            try {
-              await firebaseClient.login(email, pass);
-              ui.notifications.info("Runarcana Sync: Login realizado com sucesso!");
-            } catch (err) {
-              ui.notifications.error("Erro no login: " + err.message);
-            }
+      buttons: [{
+        action: "google",
+        label: "Google",
+        icon: "fab fa-google",
+        callback: async (event, button, dialog) => {
+          try {
+            await this.firebaseClient.loginWithGoogle();
+            ui.notifications.info("Runarcana Sync: Login com Google realizado com sucesso!");
+          } catch (err) {
+            ui.notifications.error("Erro no login com Google: " + err.message);
           }
         }
-      }
+      }, {
+        action: "login",
+        label: "Login",
+        icon: "fas fa-check",
+        default: true,
+        callback: async (event, button, dialog) => {
+          const email = dialog.element.querySelector('[name="email"]').value;
+          const pass = dialog.element.querySelector('[name="password"]').value;
+          try {
+            await this.firebaseClient.login(email, pass);
+            ui.notifications.info("Runarcana Sync: Login realizado com sucesso!");
+          } catch (err) {
+            ui.notifications.error("Erro no login: " + err.message);
+          }
+        }
+      }]
     });
   }
 }

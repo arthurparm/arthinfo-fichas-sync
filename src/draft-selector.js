@@ -1,23 +1,15 @@
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
-export class DraftSelectorDialog extends Dialog {
+export class DraftSelectorDialog {
   constructor(firebaseClient, actor, syncManager) {
-    super({
-      title: "Vincular Ficha Runarcana",
-      content: "<p>Carregando fichas...</p>",
-      buttons: {}
-    });
     this.firebaseClient = firebaseClient;
     this.actor = actor;
     this.syncManager = syncManager;
   }
 
-  async render(force, options) {
-    super.render(force, options);
-    await this.loadDrafts();
-  }
+  async render(force = true) {
+    const { DialogV2 } = foundry.applications.api;
 
-  async loadDrafts() {
     try {
       const q = query(
         collection(this.firebaseClient.db, 'character_drafts'),
@@ -27,30 +19,40 @@ export class DraftSelectorDialog extends Dialog {
       const drafts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       
       let html = `<form><div class="form-group"><label>Ficha:</label><select name="draftId">`;
-      drafts.forEach(d => {
-        html += `<option value="${d.id}">${d.concept?.name || 'Sem Nome'} (${d.classBuild?.classId || 'Sem Classe'})</option>`;
-      });
+      if (drafts.length === 0) {
+        html += `<option value="">Nenhuma ficha encontrada</option>`;
+      } else {
+        drafts.forEach(d => {
+          html += `<option value="${d.id}">${d.concept?.name || 'Sem Nome'} (${d.classBuild?.classId || 'Sem Classe'})</option>`;
+        });
+      }
       html += `</select></div></form>`;
 
-      this.data.content = html;
-      this.data.buttons = {
-        link: {
-          icon: '<i class="fas fa-link"></i>',
+      return DialogV2.wait({
+        window: { title: "Vincular Ficha Runarcana" },
+        content: html,
+        buttons: [{
+          action: "link",
           label: "Vincular",
-          callback: async (html) => {
-            const draftId = html.find('[name="draftId"]').val();
+          icon: "fas fa-link",
+          callback: async (event, button, dialog) => {
+            const select = dialog.element.querySelector('[name="draftId"]');
+            const draftId = select.value;
+            if (!draftId) return;
             await this.actor.setFlag('runarcana-sync', 'draftId', draftId);
             ui.notifications.info(`Actor vinculado à ficha ${draftId}`);
             if (this.syncManager) {
               this.syncManager.startListening(this.actor);
             }
           }
-        }
-      };
-      super.render(true);
+        }]
+      });
     } catch(err) {
-      this.data.content = `<p>Erro ao carregar fichas: ${err.message}</p>`;
-      super.render(true);
+      return DialogV2.prompt({
+        window: { title: "Erro" },
+        content: `<p>Erro ao carregar fichas: ${err.message}</p>`,
+        ok: { label: "Fechar" }
+      });
     }
   }
 }
