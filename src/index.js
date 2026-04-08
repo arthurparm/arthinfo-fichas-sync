@@ -127,7 +127,7 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
 });
 
 // Hook para a NOVA API V2 do Foundry (Ficha oficial do D&D 5e v3+ rodando no Foundry v13/v14)
-Hooks.on('getHeaderControlsApplicationV2', (app, controls) => {
+Hooks.on('getHeaderControlsActorSheetV2', (app, controls) => {
   const actor = app.document;
   if (!actor || actor.documentName !== "Actor") return;
 
