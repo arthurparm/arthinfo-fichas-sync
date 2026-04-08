@@ -4,6 +4,7 @@ export class RunarcanaLoginDialog extends Dialog {
       title: "Runarcana Sync Login",
       content: `
         <form>
+          <p>Entre com email e senha ou use a conta Google habilitada no Firebase Authentication.</p>
           <div class="form-group">
             <label>Email:</label>
             <input type="text" name="email" />
@@ -15,6 +16,18 @@ export class RunarcanaLoginDialog extends Dialog {
         </form>
       `,
       buttons: {
+        google: {
+          icon: '<i class="fab fa-google"></i>',
+          label: "Google",
+          callback: async () => {
+            try {
+              await firebaseClient.loginWithGoogle();
+              ui.notifications.info("Runarcana Sync: Login com Google realizado com sucesso!");
+            } catch (err) {
+              ui.notifications.error("Erro no login com Google: " + err.message);
+            }
+          }
+        },
         login: {
           icon: '<i class="fas fa-check"></i>',
           label: "Login",
