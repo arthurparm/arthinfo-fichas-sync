@@ -53,5 +53,7 @@
       "system": "dnd5e"
     }
   ],
-  "description": ""
+  "description": "",
+  "manifest": "https://raw.githubusercontent.com/arthurparm/runarcana-sync/main/module.json",
+  "download": "https://github.com/arthurparm/runarcana-sync/releases/download/v0.0.1/module.zip"
 }
