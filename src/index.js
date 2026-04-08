@@ -102,11 +102,11 @@ Hooks.on('deleteItem', (item, options, userId) => {
   syncManager.handleItemUpdate(item.parent);
 });
 
-// Compatibilidade Ampla: Injetando botão tanto em ApplicationV1 (Legado) quanto ApplicationV2 (Novo)
+// Compatibilidade Ampla: Injetando botão tanto em ApplicationV1 (Legado) quanto ApplicationV2 (Novo v13+)
 
-function insertSyncButton(app, buttons) {
-  // ApplicationV2 traz o documento em app.document, AppV1 traz em app.object
-  const actor = app.document || app.object;
+// Hook para janelas baseadas na API V1 do Foundry (Fichas antigas e alguns módulos)
+Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
+  const actor = app.object;
   if (!actor || actor.documentName !== "Actor") return;
 
   const isLinked = !!actor.getFlag('runarcana-sync', 'draftId');
@@ -124,14 +124,27 @@ function insertSyncButton(app, buttons) {
       }
     }
   });
-}
-
-// Hook para janelas baseadas na API V1 do Foundry (Fichas antigas e alguns módulos)
-Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
-  insertSyncButton(app, buttons);
 });
 
-// Hook para a NOVA API V2 do Foundry (Ficha oficial do D&D 5e v3+)
-Hooks.on('getApplicationHeaderButtons', (app, buttons) => {
-  insertSyncButton(app, buttons);
+// Hook para a NOVA API V2 do Foundry (Ficha oficial do D&D 5e v3+ rodando no Foundry v13/v14)
+Hooks.on('getHeaderControlsApplicationV2', (app, controls) => {
+  const actor = app.document;
+  if (!actor || actor.documentName !== "Actor") return;
+
+  const isLinked = !!actor.getFlag('runarcana-sync', 'draftId');
+  
+  controls.unshift({
+    action: "runarcana-sync",
+    icon: "fas fa-sync",
+    label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
+    class: "runarcana-sync-btn",
+    onClick: () => {
+      if (!firebaseClient) return ui.notifications.warn("Configure o Firebase nas configurações do módulo primeiro.");
+      if (!firebaseClient.auth.currentUser) {
+        new RunarcanaLoginDialog(firebaseClient).render(true);
+      } else {
+        new DraftSelectorDialog(firebaseClient, actor, syncManager).render(true);
+      }
+    }
+  });
 });
