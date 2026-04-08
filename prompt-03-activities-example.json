@@ -1,0 +1,51 @@
+{
+  "_id": "spell-marca-da-presa-01",
+  "name": "Marca da Presa",
+  "type": "spell",
+  "img": "icons/magic/nature/stealth-hide-eyes-green.webp",
+  "system": {
+    "level": 1,
+    "school": "div",
+    "description": {
+      "value": "<p>Você escolhe uma criatura que você possa ver a até 27 metros...</p>"
+    },
+    "activities": {
+      "cast-activity-id": {
+        "type": "cast",
+        "name": "Conjurar Magia",
+        "activation": {
+          "type": "bonus",
+          "value": 1
+        },
+        "target": {
+          "template": {
+            "count": 1,
+            "type": "creature"
+          }
+        }
+      },
+      "move-activity-id": {
+        "type": "utility",
+        "name": "Mover Marca",
+        "activation": {
+          "type": "bonus",
+          "value": 1
+        },
+        "description": "Se o alvo cair a 0 pontos de vida, você pode usar uma ação bônus para mover a marca."
+      },
+      "damage-activity-id": {
+        "type": "damage",
+        "name": "Dano Extra",
+        "damage": {
+          "parts": [
+            {
+              "number": 1,
+              "denomination": 6,
+              "types": ["slashing"]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
