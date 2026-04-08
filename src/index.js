@@ -1,3 +1,4 @@
+// foundry-module/src/index.js
 import { FirebaseClient } from './firebase-client.js';
 import { RunarcanaLoginDialog } from './login-dialog.js';
 import { DraftSelectorDialog } from './draft-selector.js';
@@ -7,29 +8,77 @@ let firebaseClient = null;
 let syncManager = null;
 
 Hooks.once('init', () => {
-  game.settings.register('runarcana-sync', 'firebaseConfig', {
-    name: 'Firebase Config (JSON)',
-    hint: 'Cole o JSON de configuração do Firebase do seu projeto Runarcana.',
+  // Configuração amigável: Campos separados para cada credencial do Firebase
+  game.settings.register('runarcana-sync', 'apiKey', {
+    name: 'Firebase API Key',
+    hint: 'Sua chave de API web do Firebase (apiKey).',
     scope: 'world',
     config: true,
     type: String,
-    default: '{}'
+    default: ''
+  });
+
+  game.settings.register('runarcana-sync', 'authDomain', {
+    name: 'Firebase Auth Domain',
+    hint: 'Seu domínio de autenticação (authDomain). Ex: seu-projeto.firebaseapp.com',
+    scope: 'world',
+    config: true,
+    type: String,
+    default: ''
+  });
+
+  game.settings.register('runarcana-sync', 'projectId', {
+    name: 'Firebase Project ID',
+    hint: 'O ID do seu projeto no Firebase (projectId).',
+    scope: 'world',
+    config: true,
+    type: String,
+    default: ''
+  });
+  
+  // Campo Opcional / Legado (Caso o usuário prefira colar o JSON inteiro de uma vez)
+  game.settings.register('runarcana-sync', 'firebaseConfigJSON', {
+    name: 'Firebase Config (JSON Avançado)',
+    hint: '(Opcional) Cole o objeto JSON completo do Firebase aqui. Se preenchido, irá sobrepor os campos individuais acima.',
+    scope: 'world',
+    config: true,
+    type: String,
+    default: ''
   });
 });
 
 Hooks.once('ready', () => {
-  const configStr = game.settings.get('runarcana-sync', 'firebaseConfig');
+  const jsonStr = game.settings.get('runarcana-sync', 'firebaseConfigJSON');
+  let config = {};
+
   try {
-    const config = JSON.parse(configStr);
+    if (jsonStr && jsonStr.trim() !== '') {
+      // Prioriza o JSON se estiver preenchido
+      config = JSON.parse(jsonStr);
+    } else {
+      // Caso contrário, monta o config com os campos individuais
+      const apiKey = game.settings.get('runarcana-sync', 'apiKey');
+      const authDomain = game.settings.get('runarcana-sync', 'authDomain');
+      const projectId = game.settings.get('runarcana-sync', 'projectId');
+
+      if (apiKey && authDomain && projectId) {
+        config = { apiKey, authDomain, projectId };
+      }
+    }
+
     if (Object.keys(config).length > 0) {
       firebaseClient = new FirebaseClient(config);
       syncManager = new SyncManager(firebaseClient);
       
       // Start listening for already linked actors
       game.actors.forEach(actor => syncManager.startListening(actor));
+      console.log("Runarcana Sync | Firebase configurado e rodando.");
+    } else {
+      console.warn("Runarcana Sync | Firebase não configurado. Preencha as configurações do módulo.");
     }
   } catch(e) {
-    console.error("Runarcana Sync | Invalid Firebase config", e);
+    console.error("Runarcana Sync | Erro ao iniciar o Firebase:", e);
+    ui.notifications.error("Runarcana Sync: Configuração do Firebase inválida.");
   }
 });
 
