@@ -83,7 +83,6 @@ Hooks.once('ready', () => {
 });
 
 Hooks.on('updateActor', (actor, changes, options, userId) => {
-  // Only process if we are the user who made the change
   if (userId !== game.user.id || !syncManager) return;
   syncManager.handleActorUpdate(actor, changes);
 });
@@ -103,10 +102,13 @@ Hooks.on('deleteItem', (item, options, userId) => {
   syncManager.handleItemUpdate(item.parent);
 });
 
-// A abordagem recomendada pela API do Foundry para adicionar botões 
-// na barra de título da janela da ficha (Application Header)
-Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
-  const actor = app.object;
+// Compatibilidade Ampla: Injetando botão tanto em ApplicationV1 (Legado) quanto ApplicationV2 (Novo)
+
+function insertSyncButton(app, buttons) {
+  // ApplicationV2 traz o documento em app.document, AppV1 traz em app.object
+  const actor = app.document || app.object;
+  if (!actor || actor.documentName !== "Actor") return;
+
   const isLinked = !!actor.getFlag('runarcana-sync', 'draftId');
   
   buttons.unshift({
@@ -122,4 +124,14 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
       }
     }
   });
+}
+
+// Hook para janelas baseadas na API V1 do Foundry (Fichas antigas e alguns módulos)
+Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
+  insertSyncButton(app, buttons);
+});
+
+// Hook para a NOVA API V2 do Foundry (Ficha oficial do D&D 5e v3+)
+Hooks.on('getApplicationHeaderButtons', (app, buttons) => {
+  insertSyncButton(app, buttons);
 });
