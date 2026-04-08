@@ -103,18 +103,23 @@ Hooks.on('deleteItem', (item, options, userId) => {
   syncManager.handleItemUpdate(item.parent);
 });
 
-Hooks.on('renderActorSheet', (app, html, data) => {
+// A abordagem recomendada pela API do Foundry para adicionar botões 
+// na barra de título da janela da ficha (Application Header)
+Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
   const actor = app.object;
   const isLinked = !!actor.getFlag('runarcana-sync', 'draftId');
-  const btn = $(`<a class="header-button"><i class="fas fa-sync"></i> ${isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync'}</a>`);
   
-  btn.on('click', () => {
-    if (!firebaseClient) return ui.notifications.warn("Configure o Firebase nas configurações do módulo primeiro.");
-    if (!firebaseClient.auth.currentUser) {
-      new RunarcanaLoginDialog(firebaseClient).render(true);
-    } else {
-      new DraftSelectorDialog(firebaseClient, actor, syncManager).render(true);
+  buttons.unshift({
+    class: "runarcana-sync-btn",
+    icon: "fas fa-sync",
+    label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
+    onclick: () => {
+      if (!firebaseClient) return ui.notifications.warn("Configure o Firebase nas configurações do módulo primeiro.");
+      if (!firebaseClient.auth.currentUser) {
+        new RunarcanaLoginDialog(firebaseClient).render(true);
+      } else {
+        new DraftSelectorDialog(firebaseClient, actor, syncManager).render(true);
+      }
     }
   });
-  html.closest('.app').find('.window-title').after(btn);
 });
