@@ -228,7 +228,7 @@ Hooks.once('init', () => {
   });
 });
 
-Hooks.once('ready', () => {
+Hooks.once('ready', async () => {
   // Ponto de entrada estável pra abrir a sincronização de compêndio via
   // macro, caso o botão do menu de configurações não apareça na sua versão
   // do Foundry: game.modules.get('runarcana-sync').api.openCompendiumSync()
@@ -267,6 +267,13 @@ Hooks.once('ready', () => {
       if (backendUrl) {
         apiClient = new RunarcanaApiClient(firebaseClient, backendUrl);
         syncManager = new SyncManager(apiClient);
+
+        // Espera o Firebase terminar de restaurar a sessão persistida (ex:
+        // depois de um reload) antes de tentar reconectar — sem isso,
+        // auth.currentUser ainda está null nesse ponto e todo mundo já
+        // logado toma "Usuário não autenticado" no hook ready, mesmo
+        // continuando logado de verdade um instante depois.
+        await firebaseClient.waitForAuthReady();
 
         // Start listening for already linked actors
         game.actors.forEach(actor => syncManager.startListening(actor));
