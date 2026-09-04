@@ -1,6 +1,6 @@
 // foundry-module/src/sync-manager.js
 import { ATTR_MAP, ABILITY_KEYS } from './data-mapper.js';
-import { findItemsByCatalogKeys } from './compendium-sync.js';
+import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
 function debounce(func, wait) {
@@ -339,6 +339,9 @@ export class SyncManager {
 
       // Preserva o ID do backend para garantir o vínculo bidirecional
       data._id = item.getFlag('runarcana-sync', 'sourceId') || data._id;
+      // img vem relativo ao servidor do Foundry — sem isso a ficha do site
+      // (outra origem) não consegue montar a URL do ícone do item.
+      data.img = absoluteImg(data.img);
 
       return cleanItemData(data);
     });

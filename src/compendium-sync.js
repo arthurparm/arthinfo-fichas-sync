@@ -48,6 +48,18 @@ export async function findItemsByCatalogKeys(catalogKeys) {
   return found;
 }
 
+// img no Foundry é sempre um caminho relativo ao próprio servidor (ex:
+// "icons/magic/foo.webp") — sem transformar em URL absoluta aqui, o site
+// (outra origem) não tem como montar a imagem.
+export function absoluteImg(img) {
+  if (!img) return img;
+  try {
+    return new URL(img, window.location.origin).href;
+  } catch {
+    return img;
+  }
+}
+
 function chunk(array, size) {
   const chunks = [];
   for (let i = 0; i < array.length; i += size) {
@@ -74,7 +86,7 @@ export async function syncCompendiums(apiClient, syncKey, packIds, onProgress) {
       packId,
       foundryId: doc.id,
       name: doc.name,
-      img: doc.img,
+      img: absoluteImg(doc.img),
       itemType: doc.type,
       catalogKey: doc.getFlag('runarcana-sync', 'catalogKey') ?? null,
       system: doc.toObject().system,
