@@ -7,13 +7,14 @@ import {
   signInWithPopup,
   signInWithRedirect
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
 
+// O Firebase aqui é usado só para autenticação (login). Os dados das fichas
+// não passam mais pelo Firestore — veja api-client.js, que fala com o
+// backend próprio (runarcana-api) usando o ID token obtido por este client.
 export class FirebaseClient {
   constructor(config) {
     this.app = initializeApp(config);
     this.auth = getAuth(this.app);
-    this.db = getFirestore(this.app);
     this.googleProvider = new GoogleAuthProvider();
     this.googleProvider.setCustomParameters({ prompt: 'select_account' });
   }

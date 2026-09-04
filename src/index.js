@@ -1,11 +1,39 @@
 // foundry-module/src/index.js
 import { FirebaseClient } from './firebase-client.js';
+import { RunarcanaApiClient } from './api-client.js';
 import { RunarcanaLoginDialog } from './login-dialog.js';
 import { DraftSelectorDialog } from './draft-selector.js';
+import { CompendiumSyncDialog } from './compendium-sync-dialog.js';
 import { SyncManager } from './sync-manager.js';
 
 let firebaseClient = null;
+let apiClient = null;
 let syncManager = null;
+
+function openCompendiumSyncDialog() {
+  if (!apiClient) {
+    ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
+    return;
+  }
+  new CompendiumSyncDialog(apiClient).render();
+}
+
+// Adaptador mínimo pra aparecer como botão no painel de configurações do
+// módulo (game.settings.registerMenu exige uma classe estilo Application).
+// Se o botão não renderizar certinho na sua versão do Foundry, use o macro
+// documentado no README (game.modules.get('runarcana-sync').api.openCompendiumSync()).
+class CompendiumSyncMenuApp extends FormApplication {
+  constructor() {
+    super({});
+  }
+
+  render() {
+    openCompendiumSyncDialog();
+    return this;
+  }
+
+  async _updateObject() {}
+}
 
 function getStringSetting(key) {
   const value = game.settings.get('runarcana-sync', key);
@@ -96,61 +124,119 @@ function extractConfigFromAdvancedField(rawConfig) {
   }
 }
 
+// Config padrão do serviço central Runarcana (o mesmo projeto Firebase e
+// backend usados pelo site) — quem instala o módulo não precisa ter/criar
+// nada próprio, só logar. Esses valores já são públicos (o apiKey do
+// Firebase Web não é segredo) e já estão embutidos no runtime-config.json
+// do site. Continuam editáveis nas configurações do módulo só pra quem
+// quiser rodar uma instância própria/self-hosted.
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyBrsYNloHwMgf2x9QKFScMFZmWf6t2Yiak',
+  authDomain: 'rpg-fichas-centralizadas.firebaseapp.com',
+  projectId: 'rpg-fichas-centralizadas',
+  appId: '1:233256160629:web:7a9a8e05edb429e407973c',
+};
+
 Hooks.once('init', () => {
   // Configuração amigável: Campos separados para cada credencial do Firebase
   game.settings.register('runarcana-sync', 'apiKey', {
     name: 'Firebase API Key',
-    hint: 'Sua chave de API web do Firebase (apiKey).',
+    hint: 'Sua chave de API web do Firebase (apiKey). Já vem preenchida com o serviço central Runarcana.',
     scope: 'world',
     config: true,
     type: String,
-    default: '',
+    default: DEFAULT_FIREBASE_CONFIG.apiKey,
     requiresReload: true
   });
 
   game.settings.register('runarcana-sync', 'authDomain', {
     name: 'Firebase Auth Domain',
-    hint: 'Seu domínio de autenticação (authDomain). Ex: seu-projeto.firebaseapp.com',
+    hint: 'Seu domínio de autenticação (authDomain). Já vem preenchida com o serviço central Runarcana.',
     scope: 'world',
     config: true,
     type: String,
-    default: '',
+    default: DEFAULT_FIREBASE_CONFIG.authDomain,
     requiresReload: true
   });
 
   game.settings.register('runarcana-sync', 'projectId', {
     name: 'Firebase Project ID',
-    hint: 'O ID do seu projeto no Firebase (projectId).',
+    hint: 'O ID do seu projeto no Firebase (projectId). Já vem preenchida com o serviço central Runarcana.',
     scope: 'world',
     config: true,
     type: String,
-    default: '',
+    default: DEFAULT_FIREBASE_CONFIG.projectId,
     requiresReload: true
   });
 
   game.settings.register('runarcana-sync', 'appId', {
     name: 'Firebase App ID',
-    hint: '(Opcional) O ID do aplicativo (appId). Geralmente no formato 1:xxxxxxxxxx:web:xxxxxxxxxx.',
+    hint: '(Opcional) O ID do aplicativo (appId). Já vem preenchida com o serviço central Runarcana.',
     scope: 'world',
     config: true,
     type: String,
-    default: '',
+    default: DEFAULT_FIREBASE_CONFIG.appId,
     requiresReload: true
   });
 
   // Campo Opcional / Legado (Caso o usuário prefira colar o JSON inteiro de uma vez)
   game.settings.register('runarcana-sync', 'firebaseConfigJSON', {
     name: 'Firebase Config (JSON Avançado)',
-    hint: '(Opcional) Cole o objeto JSON completo do Firebase aqui. Se preenchido, irá sobrepor os campos individuais acima.',
+    hint: '(Opcional) Só preencha se for rodar seu próprio projeto Firebase em vez do serviço central Runarcana. Se preenchido, sobrepõe os campos individuais acima.',
     scope: 'world',
     config: true,
     type: String,
     default: '',
     requiresReload: true
   });
+
+  game.settings.register('runarcana-sync', 'backendUrl', {
+    name: 'URL do Backend Runarcana',
+    hint: 'URL base do servidor runarcana-api. Já vem preenchida com o serviço central Runarcana — só troque se for rodar sua própria instância. É ele quem guarda as fichas e distribui as mudanças ao vivo — o Firebase acima serve só para login.',
+    scope: 'world',
+    config: true,
+    type: String,
+    default: 'https://api.runarcana.org',
+    requiresReload: true
+  });
+
+  game.settings.register('runarcana-sync', 'compendiumSyncKey', {
+    name: 'Chave de Sincronização de Compêndio',
+    hint: 'Chave usada só para sincronizar itens de compêndio (não é login). Peça a chave da sua assinatura, ou configure a sua própria se estiver rodando um backend próprio.',
+    scope: 'world',
+    config: true,
+    type: String,
+    default: ''
+  });
+
+  // Guarda a última seleção de compêndios pro diálogo de sincronização não
+  // precisar remarcar tudo toda vez. Não aparece no painel de config.
+  game.settings.register('runarcana-sync', 'compendiumSyncSelection', {
+    scope: 'world',
+    config: false,
+    type: Array,
+    default: []
+  });
+
+  game.settings.registerMenu('runarcana-sync', 'compendiumSyncMenu', {
+    name: 'Sincronizar Compêndio de Itens',
+    label: 'Abrir Sincronização',
+    hint: 'Escolhe quais compêndios de itens do mundo sincronizar com o backend, pra alimentar o seletor de equipamento do site.',
+    icon: 'fas fa-box-open',
+    type: CompendiumSyncMenuApp,
+    restricted: true
+  });
 });
 
 Hooks.once('ready', () => {
+  // Ponto de entrada estável pra abrir a sincronização de compêndio via
+  // macro, caso o botão do menu de configurações não apareça na sua versão
+  // do Foundry: game.modules.get('runarcana-sync').api.openCompendiumSync()
+  const thisModule = game.modules.get('runarcana-sync');
+  if (thisModule) {
+    thisModule.api = { openCompendiumSync: openCompendiumSyncDialog };
+  }
+
   const advancedField = getStringSetting('firebaseConfigJSON');
   let config = {};
   let missingFields = [];
@@ -176,11 +262,22 @@ Hooks.once('ready', () => {
 
     if (Object.keys(config).length > 0) {
       firebaseClient = new FirebaseClient(config);
-      syncManager = new SyncManager(firebaseClient);
 
-      // Start listening for already linked actors
-      game.actors.forEach(actor => syncManager.startListening(actor));
-      console.log('Runarcana Sync | Firebase configurado e rodando.');
+      const backendUrl = getStringSetting('backendUrl');
+      if (backendUrl) {
+        apiClient = new RunarcanaApiClient(firebaseClient, backendUrl);
+        syncManager = new SyncManager(apiClient);
+
+        // Start listening for already linked actors
+        game.actors.forEach(actor => syncManager.startListening(actor));
+        console.log('Runarcana Sync | Firebase (login) e backend configurados e rodando.');
+
+        // Exposto pra depuração/macros: game.modules.get('runarcana-sync').api
+        thisModule.api.firebaseClient = firebaseClient;
+        thisModule.api.syncManager = syncManager;
+      } else {
+        console.warn('Runarcana Sync | URL do backend não configurada nas configurações do módulo.');
+      }
     } else {
       console.warn(
         `Runarcana Sync | Firebase não configurado. Campos ausentes: ${missingFields.join(', ') || 'desconhecidos'}.`
@@ -226,13 +323,13 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
     icon: 'fas fa-sync',
     label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
     onclick: () => {
-      if (!firebaseClient) {
-        return ui.notifications.warn('Configure o Firebase nas configurações do módulo primeiro.');
+      if (!firebaseClient || !apiClient) {
+        return ui.notifications.warn('Configure o Firebase e a URL do backend nas configurações do módulo primeiro.');
       }
       if (!firebaseClient.auth.currentUser) {
         new RunarcanaLoginDialog(firebaseClient).render(true);
       } else {
-        new DraftSelectorDialog(firebaseClient, actor, syncManager).render(true);
+        new DraftSelectorDialog(apiClient, actor, syncManager).render(true);
       }
     }
   });
@@ -251,13 +348,13 @@ Hooks.on('getHeaderControlsActorSheetV2', (app, controls) => {
     label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
     class: 'runarcana-sync-btn',
     onClick: () => {
-      if (!firebaseClient) {
-        return ui.notifications.warn('Configure o Firebase nas configurações do módulo primeiro.');
+      if (!firebaseClient || !apiClient) {
+        return ui.notifications.warn('Configure o Firebase e a URL do backend nas configurações do módulo primeiro.');
       }
       if (!firebaseClient.auth.currentUser) {
         new RunarcanaLoginDialog(firebaseClient).render(true);
       } else {
-        new DraftSelectorDialog(firebaseClient, actor, syncManager).render(true);
+        new DraftSelectorDialog(apiClient, actor, syncManager).render(true);
       }
     }
   });

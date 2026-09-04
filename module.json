@@ -20,42 +20,7 @@
   "esmodules": [
     "dist/module.js"
   ],
-  "packs": [
-    {
-      "name": "pack-1",
-      "label": "Regras",
-      "path": "packs/pack-1",
-      "type": "Actor",
-      "system": "dnd5e",
-      "ownership": {
-        "PLAYER": "OBSERVER",
-        "ASSISTANT": "OWNER"
-      }
-    },
-    {
-      "name": "pack-2",
-      "label": "Equipamentos",
-      "path": "packs/pack-2",
-      "type": "Item",
-      "system": "dnd5e",
-      "ownership": {
-        "PLAYER": "OBSERVER",
-        "ASSISTANT": "OWNER"
-      }
-    },
-    {
-      "name": "pack-3",
-      "label": "Personagem",
-      "path": "packs/pack-3",
-      "type": "JournalEntry",
-      "ownership": {
-        "PLAYER": "OBSERVER",
-        "ASSISTANT": "OWNER"
-      },
-      "system": "dnd5e"
-    }
-  ],
-  "description": "",
+  "description": "Sincroniza fichas do Runarcana (via runarcana-api) com Atores do Foundry, incluindo sincronização de compêndios de itens curados pelo mestre.",
   "manifest": "https://raw.githubusercontent.com/arthurparm/runarcana-sync/main/module.json",
   "download": "https://github.com/arthurparm/runarcana-sync/releases/download/v0.0.1/module.zip"
 }
