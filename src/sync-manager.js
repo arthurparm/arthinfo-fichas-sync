@@ -1,5 +1,5 @@
 // foundry-module/src/sync-manager.js
-import { ATTR_MAP, ABILITY_KEYS, SKILL_KEY_MAP } from './data-mapper.js';
+import { ATTR_MAP, ABILITY_KEYS, SKILL_KEY_MAP, readActorTraits, readFoundryBiography, readFoundryIdentity } from './data-mapper.js';
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
@@ -65,15 +65,82 @@ function resolveActorPortrait(img) {
   return url;
 }
 
-function serializeActorConditions(actor) {
+function statusList(effect) {
+  const statuses = effect.statuses;
+  if (!statuses) return [];
+  if (typeof statuses.size === 'number') return [...statuses].map(String);
+  if (Array.isArray(statuses)) return statuses.map(String);
+  if (typeof statuses === 'object') return Object.keys(statuses);
+  return [];
+}
+
+function collectApplicableEffects(actor) {
+  if (typeof actor.allApplicableEffects === 'function') {
+    return [...actor.allApplicableEffects()];
+  }
   const collection = actor.effects;
-  const list = collection?.contents ?? (Array.isArray(collection) ? collection : []);
-  return list
-    .filter((effect) => !effect.disabled && effect.name)
-    .map((effect) => {
-      const img = absoluteImg(effect.img || effect.icon);
-      return img ? { name: effect.name, img } : { name: effect.name };
+  return collection?.contents ?? (Array.isArray(collection) ? collection : []);
+}
+
+function isEnchantmentEffect(effect) {
+  return effect.type === 'enchantment' || effect.isAppliedEnchantment === true;
+}
+
+function effectDurationLabel(effect) {
+  const label = effect.duration?.label;
+  if (!label) return '';
+  const normalized = String(label).trim();
+  if (!normalized) return '';
+  if (/^(none|nenhum|permanent|permanente|indefinid)/i.test(normalized)) return '';
+  return normalized;
+}
+
+function effectSourceName(effect, actor) {
+  const parent = effect.parent;
+  if (parent && parent !== actor && parent.name) return parent.name;
+  return '';
+}
+
+function serializeEffectEntry(effect, actor) {
+  const entry = { name: effect.name };
+  const img = absoluteImg(effect.img || effect.icon);
+  if (img) entry.img = img;
+  if (effect.disabled) entry.disabled = true;
+  if (effect.isSuppressed) entry.isSuppressed = true;
+  if (effect.isTemporary) entry.isTemporary = true;
+  const statuses = statusList(effect);
+  if (statuses.length) entry.statuses = statuses;
+  const durationLabel = effectDurationLabel(effect);
+  if (durationLabel) entry.durationLabel = durationLabel;
+  const source = effectSourceName(effect, actor);
+  if (source) entry.source = source;
+  return entry;
+}
+
+// Condição de status de verdade (enfeitiçado, envenenado, etc.) tem
+// effect.statuses preenchido. Efeitos passivos de item (Defesa Desarmada)
+// também vêm com disabled: false, mas statuses vazio — não entram aqui.
+function serializeActorConditions(actor) {
+  return collectApplicableEffects(actor)
+    .filter((effect) => !effect.disabled && !effect.isSuppressed && effect.name && !isEnchantmentEffect(effect))
+    .map((effect) => serializeEffectEntry(effect, actor))
+    .filter((entry) => {
+      const statuses = entry.statuses ?? [];
+      if (statuses.length === 0) return false;
+      return !statuses.every((status) => status === 'exhaustion');
+    })
+    .map((entry) => {
+      const condition = { name: entry.name, statuses: entry.statuses };
+      if (entry.img) condition.img = entry.img;
+      return condition;
     });
+}
+
+// Aba Efeitos do Foundry: passivos, inativos, temporários e suprimidos.
+function serializeActorEffects(actor) {
+  return collectApplicableEffects(actor)
+    .filter((effect) => effect?.name && !isEnchantmentEffect(effect))
+    .map((effect) => serializeEffectEntry(effect, actor));
 }
 
 export class SyncManager {
@@ -111,8 +178,11 @@ export class SyncManager {
           this.lastKnownDraft.set(actor.id, initialDraft);
           await this._applyRemoteDraft(actor, initialDraft);
           // Publica campos só-Foundry (retrato, death saves, condições)
-          // que o draft remoto ainda não tem.
+          // e os itens do Ator (classe/raça/feats) que o draft remoto
+          // ainda não tem — sem isso o cabeçalho da ficha fica com a
+          // classe/origem da wiki e a aba Características perde a Fúria.
           await this._executeActorUpdate(actor, draftId);
+          await this._executeItemUpdate(actor, draftId);
         }
       } catch (error) {
         this.notifyApiError('carregar', error, actor);
@@ -250,9 +320,12 @@ export class SyncManager {
         }
       }
 
-      // Verifica itens deletados no backend para deletar localmente
+      // Só apaga o que o sync criou a partir do draft (tem sourceId).
+      // Itens nativos do Foundry (classe, raça, Fúria...) não têm essa
+      // flag — se o site ainda não os conhece, não podem sumir do Ator.
       for (const lItem of localItems) {
-        const sourceId = lItem.getFlag('runarcana-sync', 'sourceId') || lItem.id;
+        const sourceId = lItem.getFlag('runarcana-sync', 'sourceId');
+        if (!sourceId) continue;
         const existsRemote = remoteItems.some(i => i._id === sourceId);
         if (!existsRemote) {
           toDelete.push(lItem.id);
@@ -381,6 +454,14 @@ export class SyncManager {
     // Retrato: só Foundry -> site. A ficha não deve alterar o img do Ator.
     foundry.utils.setProperty(base, 'concept.portraitUrl', resolveActorPortrait(actor.img));
     base.conditions = serializeActorConditions(actor);
+    base.effects = serializeActorEffects(actor);
+    // Sentidos, resistências, proficiências de armadura/arma e idiomas —
+    // listas/objetos, só Foundry -> site (evita eco de Set vs array).
+    base.traits = readActorTraits(actor);
+    base.foundryIdentity = readFoundryIdentity(actor);
+    const biography = readFoundryBiography(actor);
+    base.identity = { ...(base.identity ?? {}), ...biography.identity };
+    base.description = { ...(base.description ?? {}), ...biography.description };
 
     try {
       const saved = await this.apiClient.saveDraft(draftId, base);
@@ -407,21 +488,36 @@ export class SyncManager {
       return;
     }
 
-    const itemsData = actor.items.map(item => {
-      // Pega o objeto bruto do item, incluindo as "Activities" geradas pelo sistema dnd5e
-      const data = item.toObject();
-
-      // Preserva o ID do backend para garantir o vínculo bidirecional
-      data._id = item.getFlag('runarcana-sync', 'sourceId') || data._id;
-      // img vem relativo ao servidor do Foundry — sem isso a ficha do site
-      // (outra origem) não consegue montar a URL do ícone do item.
-      data.img = absoluteImg(data.img);
-
-      return cleanItemData(data);
-    });
+    const itemsData = [];
+    for (const item of actor.items) {
+      try {
+        const data = item.toObject();
+        data._id = item.getFlag('runarcana-sync', 'sourceId') || data._id;
+        data.img = absoluteImg(data.img);
+        const cleaned = cleanItemData(data);
+        // advancement de classe/raça é enorme e não é lido pela ficha —
+        // sem isso o PUT às vezes falha e o item de classe some do draft.
+        if (['class', 'subclass', 'race', 'background'].includes(cleaned.type) && cleaned.system) {
+          delete cleaned.system.advancement;
+        }
+        itemsData.push(cleaned);
+      } catch (error) {
+        console.warn(`Runarcana Sync | Não foi possível serializar ${item.name} (${item.type}):`, error);
+        itemsData.push({
+          _id: item.getFlag('runarcana-sync', 'sourceId') || item.id,
+          name: item.name,
+          type: item.type,
+          img: absoluteImg(item.img),
+          system: item.type === 'class' ? { levels: item.system?.levels } : {},
+        });
+      }
+    }
 
     const base = foundry.utils.deepClone(this.lastKnownDraft.get(actor.id));
     base.items = itemsData;
+    base.foundryIdentity = readFoundryIdentity(actor);
+    base.conditions = serializeActorConditions(actor);
+    base.effects = serializeActorEffects(actor);
 
     try {
       const saved = await this.apiClient.saveDraft(draftId, base);

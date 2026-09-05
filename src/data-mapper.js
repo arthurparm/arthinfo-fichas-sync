@@ -67,6 +67,196 @@ export const ATTR_MAP = {
   'system.attributes.exhaustion': 'derivedStats.exhaustion'
 };
 
+// Sentidos do dnd5e 5.3+ vivem em system.attributes.senses.ranges.*; versões
+// antigas ainda têm darkvision/blindsight/etc. no próprio senses. Não cabem
+// bem no ATTR_MAP (0 vs ausente, e o caminho mudou) — ver readActorSenses.
+export const SENSE_KEYS = ['darkvision', 'blindsight', 'tremorsense', 'truesight'];
+
+// Listas de traço do Ator (Set no Foundry, array no draft). Foundry -> site
+// só; a ficha não edita esses campos, então não voltam pelo ATTR_MAP.
+export const TRAIT_LIST_PATHS = {
+  damageResistances: 'system.traits.dr',
+  damageImmunities: 'system.traits.di',
+  damageVulnerabilities: 'system.traits.dv',
+  armorProficiencies: 'system.traits.armorProf',
+  weaponProficiencies: 'system.traits.weaponProf',
+  languages: 'system.traits.languages'
+};
+
+function toStringList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean).map(String);
+  if (value instanceof Set) return [...value].filter(Boolean).map(String);
+  if (typeof value === 'object') return Object.keys(value).filter((key) => value[key]);
+  return [];
+}
+
+export function readTraitValues(trait) {
+  if (!trait) return [];
+  const fromValue = toStringList(trait.value ?? (Array.isArray(trait) || trait instanceof Set ? trait : null));
+  const custom = typeof trait.custom === 'string'
+    ? trait.custom.split(/[;,\n]/).map((entry) => entry.trim()).filter(Boolean)
+    : [];
+  return [...new Set([...fromValue, ...custom])];
+}
+
+export function readActorSenses(actor) {
+  const senses = actor.system?.attributes?.senses ?? {};
+  const ranges = senses.ranges ?? {};
+  const result = {};
+  for (const key of SENSE_KEYS) {
+    const value = ranges[key] ?? senses[key];
+    if (typeof value === 'number' && value > 0) result[key] = value;
+  }
+  if (senses.units) result.units = senses.units;
+  if (typeof senses.special === 'string' && senses.special.trim()) {
+    result.special = senses.special.trim();
+  }
+  return result;
+}
+
+export function readActorTraits(actor) {
+  const traits = actor.system?.traits ?? {};
+  return {
+    senses: readActorSenses(actor),
+    damageResistances: readTraitValues(traits.dr),
+    damageImmunities: readTraitValues(traits.di),
+    damageVulnerabilities: readTraitValues(traits.dv),
+    armorProficiencies: readTraitValues(traits.armorProf),
+    weaponProficiencies: readTraitValues(traits.weaponProf),
+    languages: readTraitValues(traits.languages)
+  };
+}
+
+function asItemArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value.length === 'number' || typeof value[Symbol.iterator] === 'function') {
+    return [...value];
+  }
+  if (typeof value === 'object') return Object.values(value);
+  return [];
+}
+
+function itemsOfType(actor, type) {
+  const typed = asItemArray(actor.itemTypes?.[type]);
+  if (typed.length > 0) return typed;
+  const list = asItemArray(actor.items?.contents ?? actor.items);
+  return list.filter((item) => item?.type === type);
+}
+
+function embeddedName(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value.name || '';
+}
+
+function hitDieOf(item) {
+  const raw = item?.system?.hd?.denomination ?? item?.system?.hitDice ?? item?.system?.hitDie;
+  if (typeof raw === 'number' && raw > 0) return `d${raw}`;
+  if (typeof raw === 'string' && raw.trim()) {
+    const value = raw.trim();
+    return value.startsWith('d') ? value : `d${value}`;
+  }
+  return '';
+}
+
+function actorHitDice(actor) {
+  const hd = actor.system?.attributes?.hd;
+  if (!hd) return { value: 0, max: 0 };
+  const value = Number(hd.value);
+  const max = Number(hd.max);
+  return {
+    value: Number.isFinite(value) ? value : 0,
+    max: Number.isFinite(max) ? max : 0,
+  };
+}
+
+// Resumo leve de classe/raça/antecedente — não depende do toObject() do
+// item de classe (que no dnd5e carrega advancement enorme e às vezes
+// falha/some do array de items). O cabeçalho da ficha lê isto.
+export function readFoundryIdentity(actor) {
+  const fromTypes = itemsOfType(actor, 'class');
+  const fromMap = asItemArray(actor.classes);
+  const seen = new Set();
+  const classItems = [];
+  for (const item of [...fromTypes, ...fromMap]) {
+    const id = item?.id || item?.name;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    classItems.push(item);
+  }
+
+  const raceItem = itemsOfType(actor, 'race')[0];
+  const backgroundItem = itemsOfType(actor, 'background')[0];
+  const subclassItem = itemsOfType(actor, 'subclass')[0];
+  const hitDice = actorHitDice(actor);
+  const size = actor.system?.traits?.size || '';
+
+  return {
+    classes: classItems.map((item) => ({
+      name: item.name || '',
+      identifier: item.system?.identifier || item.identifier || '',
+      levels: Number(item.system?.levels) || 0,
+      hitDie: hitDieOf(item),
+    })),
+    subclassName: subclassItem?.name || '',
+    raceName: raceItem?.name || embeddedName(actor.system?.details?.race),
+    backgroundName: backgroundItem?.name || embeddedName(actor.system?.details?.background),
+    size,
+    hitDie: classItems.map(hitDieOf).find(Boolean) || '',
+    hitDiceValue: hitDice.value,
+    hitDiceMax: hitDice.max,
+  };
+}
+
+function filledString(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
+// Biografia do Ator (aba Biography do dnd5e2). Foundry -> site, unidirecional:
+// strings livres, HTML em biography.value. Só devolve campos preenchidos.
+export function readFoundryBiography(actor) {
+  const details = actor.system?.details ?? {};
+  const identity = {};
+  const description = {};
+
+  const appearance = filledString(details.appearance);
+  const age = filledString(details.age);
+  const gender = filledString(details.gender);
+  const height = filledString(details.height);
+  const weight = filledString(details.weight);
+  const eyes = filledString(details.eyes);
+  const hair = filledString(details.hair);
+  const skin = filledString(details.skin);
+  if (appearance) identity.appearance = appearance;
+  if (age) identity.age = age;
+  if (gender) identity.sex = gender;
+  if (height) identity.height = height;
+  if (weight) identity.weight = weight;
+  if (eyes) identity.eyes = eyes;
+  if (hair) identity.hair = hair;
+  if (skin) identity.skin = skin;
+
+  const alignment = filledString(details.alignment);
+  const faith = filledString(details.faith);
+  const ideal = filledString(details.ideal);
+  const bond = filledString(details.bond);
+  const flaw = filledString(details.flaw);
+  const trait = filledString(details.trait);
+  const backstory = filledString(details.biography?.value);
+  if (alignment) description.alignment = alignment;
+  if (faith) description.faith = faith;
+  if (ideal) description.ideal = ideal;
+  if (bond) description.bond = bond;
+  if (flaw) description.flaw = flaw;
+  if (trait) description.trait = trait;
+  if (backstory) description.backstory = backstory;
+
+  return { identity, description };
+}
+
 /**
  * Lista de habilidades para processamento especial de bônus racial
  */
