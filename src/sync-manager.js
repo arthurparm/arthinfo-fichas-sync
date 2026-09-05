@@ -1,5 +1,5 @@
 // foundry-module/src/sync-manager.js
-import { ATTR_MAP, ABILITY_KEYS } from './data-mapper.js';
+import { ATTR_MAP, ABILITY_KEYS, SKILL_KEY_MAP } from './data-mapper.js';
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
@@ -58,6 +58,24 @@ function sanitizeActivities(itemData) {
   return itemData;
 }
 
+function resolveActorPortrait(img) {
+  const url = absoluteImg(img);
+  if (!url) return '';
+  if (String(url).includes('mystery-man') || String(url).includes('icons/svg/item-bag')) return '';
+  return url;
+}
+
+function serializeActorConditions(actor) {
+  const collection = actor.effects;
+  const list = collection?.contents ?? (Array.isArray(collection) ? collection : []);
+  return list
+    .filter((effect) => !effect.disabled && effect.name)
+    .map((effect) => {
+      const img = absoluteImg(effect.img || effect.icon);
+      return img ? { name: effect.name, img } : { name: effect.name };
+    });
+}
+
 export class SyncManager {
   constructor(apiClient) {
     this.apiClient = apiClient;
@@ -92,6 +110,9 @@ export class SyncManager {
         if (initialDraft) {
           this.lastKnownDraft.set(actor.id, initialDraft);
           await this._applyRemoteDraft(actor, initialDraft);
+          // Publica campos só-Foundry (retrato, death saves, condições)
+          // que o draft remoto ainda não tem.
+          await this._executeActorUpdate(actor, draftId);
         }
       } catch (error) {
         this.notifyApiError('carregar', error, actor);
@@ -156,6 +177,28 @@ export class SyncManager {
       const remoteVal = baseScore + racialBonus;
       if (currentVal !== remoteVal) {
         updateData[`system.abilities.${ab}.value`] = remoteVal;
+      }
+    });
+
+    // 2b. Proficiência de resistência (0/1 no Foundry, booleano no site)
+    ABILITY_KEYS.forEach(({ foundry: ab, firebase: fbKey }) => {
+      const remoteProficient = foundry.utils.getProperty(data, `proficiencies.savingThrows.${fbKey}`);
+      if (remoteProficient === undefined) return;
+      const remoteVal = remoteProficient ? 1 : 0;
+      const currentVal = actor.system.abilities?.[ab]?.proficient ?? 0;
+      if (currentVal !== remoteVal) {
+        updateData[`system.abilities.${ab}.proficient`] = remoteVal;
+      }
+    });
+
+    // 2c. Proficiência de perícia (0/0.5/1/2 no Foundry <-> false/'expertise' no site)
+    SKILL_KEY_MAP.forEach(({ foundry: sk, id }) => {
+      const remoteLevel = foundry.utils.getProperty(data, `proficiencies.skills.${id}`);
+      if (remoteLevel === undefined) return;
+      const remoteVal = remoteLevel === 'expertise' ? 2 : remoteLevel === true ? 1 : 0;
+      const currentVal = actor.system.skills?.[sk]?.value ?? 0;
+      if (currentVal !== remoteVal) {
+        updateData[`system.skills.${sk}.value`] = remoteVal;
       }
     });
 
@@ -307,6 +350,37 @@ export class SyncManager {
       const racialBonus = foundry.utils.getProperty(base, `attributes.originBonuses.${fbKey}`) || 0;
       foundry.utils.setProperty(base, `attributes.scores.${fbKey}`, currentVal - racialBonus);
     });
+
+    // Proficiência de resistência: Foundry manda (0/1 -> booleano do site)
+    ABILITY_KEYS.forEach(({ foundry: ab, firebase: fbKey }) => {
+      const proficient = actor.system.abilities?.[ab]?.proficient;
+      if (proficient === undefined) return;
+      foundry.utils.setProperty(base, `proficiencies.savingThrows.${fbKey}`, proficient >= 1);
+    });
+
+    // Proficiência de perícia: Foundry manda (0/0.5/1/2 -> ProficiencyLevel
+    // do site; meia-proficiência não tem equivalente e vira `false`)
+    SKILL_KEY_MAP.forEach(({ foundry: sk, id }) => {
+      const value = actor.system.skills?.[sk]?.value;
+      if (value === undefined) return;
+      const level = value >= 2 ? 'expertise' : value >= 1 ? true : false;
+      foundry.utils.setProperty(base, `proficiencies.skills.${id}`, level);
+    });
+
+    // Habilidade de conjuração: só Foundry -> site (não editável na ficha).
+    // Cobre só a classe conjuradora principal (system.attributes.spellcasting
+    // é um campo único no ator, dnd5e não separa por classe em multiclasse).
+    const spellcastingAbility = actor.system.attributes?.spellcasting;
+    if (spellcastingAbility) {
+      const match = ABILITY_KEYS.find(({ foundry: ab }) => ab === spellcastingAbility);
+      if (match) {
+        foundry.utils.setProperty(base, 'spellcasting.ability', match.firebase);
+      }
+    }
+
+    // Retrato: só Foundry -> site. A ficha não deve alterar o img do Ator.
+    foundry.utils.setProperty(base, 'concept.portraitUrl', resolveActorPortrait(actor.img));
+    base.conditions = serializeActorConditions(actor);
 
     try {
       const saved = await this.apiClient.saveDraft(draftId, base);

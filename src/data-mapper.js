@@ -59,7 +59,12 @@ export const ATTR_MAP = {
   'system.resources.secondary.label': 'resources.secondary.name',
   'system.resources.tertiary.value': 'resources.tertiary.current',
   'system.resources.tertiary.max': 'resources.tertiary.max',
-  'system.resources.tertiary.label': 'resources.tertiary.name'
+  'system.resources.tertiary.label': 'resources.tertiary.name',
+
+  // --- Testes de morte e exaustão ---
+  'system.attributes.death.success': 'derivedStats.deathSaveSuccesses',
+  'system.attributes.death.failure': 'derivedStats.deathSaveFailures',
+  'system.attributes.exhaustion': 'derivedStats.exhaustion'
 };
 
 /**
@@ -72,4 +77,34 @@ export const ABILITY_KEYS = [
   { foundry: 'int', firebase: 'intelligence' },
   { foundry: 'wis', firebase: 'wisdom' },
   { foundry: 'cha', firebase: 'charisma' }
+];
+
+/**
+ * Perícias do dnd5e (Foundry) e o SkillId correspondente no site — mesmos 18
+ * IDs de core/rules/skills.ts do rpg-runarcana-ficha. Processamento especial
+ * (não cabe no ATTR_MAP genérico) porque o valor não é um booleano simples:
+ * o Foundry usa 0/0.5/1/2 (não-proficiente/meia-proficiência/proficiente/
+ * expertise), o site usa `ProficiencyLevel` (boolean | 'expertise'). A
+ * meia-proficiência não tem equivalente no site e vira `false` ao sincronizar
+ * Foundry → site.
+ */
+export const SKILL_KEY_MAP = [
+  { foundry: 'acr', id: 'acrobatics' },
+  { foundry: 'ani', id: 'animal-handling' },
+  { foundry: 'arc', id: 'arcana' },
+  { foundry: 'ath', id: 'athletics' },
+  { foundry: 'dec', id: 'deception' },
+  { foundry: 'his', id: 'history' },
+  { foundry: 'ins', id: 'insight' },
+  { foundry: 'itm', id: 'intimidation' },
+  { foundry: 'inv', id: 'investigation' },
+  { foundry: 'med', id: 'medicine' },
+  { foundry: 'nat', id: 'nature' },
+  { foundry: 'prc', id: 'perception' },
+  { foundry: 'prf', id: 'performance' },
+  { foundry: 'per', id: 'persuasion' },
+  { foundry: 'rel', id: 'religion' },
+  { foundry: 'slt', id: 'sleight-of-hand' },
+  { foundry: 'ste', id: 'stealth' },
+  { foundry: 'sur', id: 'survival' }
 ];

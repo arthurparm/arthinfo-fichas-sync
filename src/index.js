@@ -316,6 +316,32 @@ Hooks.on('deleteItem', (item, options, userId) => {
   syncManager.handleItemUpdate(item.parent);
 });
 
+function actorOfEffect(effect) {
+  const parent = effect?.parent;
+  if (!parent) return null;
+  if (parent.documentName === 'Actor') return parent;
+  if (parent.documentName === 'Item' && parent.parent?.documentName === 'Actor') return parent.parent;
+  return null;
+}
+
+Hooks.on('createActiveEffect', (effect, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  const actor = actorOfEffect(effect);
+  if (actor) syncManager.handleActorUpdate(actor, {});
+});
+
+Hooks.on('updateActiveEffect', (effect, changes, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  const actor = actorOfEffect(effect);
+  if (actor) syncManager.handleActorUpdate(actor, changes);
+});
+
+Hooks.on('deleteActiveEffect', (effect, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  const actor = actorOfEffect(effect);
+  if (actor) syncManager.handleActorUpdate(actor, {});
+});
+
 // Compatibilidade Ampla: Injetando botão tanto em ApplicationV1 (Legado) quanto ApplicationV2 (Novo v13+)
 
 // Hook para janelas baseadas na API V1 do Foundry (Fichas antigas e alguns módulos)
