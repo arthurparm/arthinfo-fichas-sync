@@ -1,6 +1,7 @@
 // foundry-module/src/sync-manager.js
 import {
   ATTR_MAP,
+  ONE_WAY_FOUNDRY_TO_SITE,
   ABILITY_KEYS,
   SKILL_KEY_MAP,
   readActorTraits,
@@ -240,6 +241,7 @@ export class SyncManager {
     // 1. Processamento dinâmico de todos os atributos mapeados
     for (const [foundryPath, firebasePath] of Object.entries(ATTR_MAP)) {
       if (foundryPath.startsWith('system.abilities')) continue;
+      if (ONE_WAY_FOUNDRY_TO_SITE.has(foundryPath)) continue;
       const remoteValue = foundry.utils.getProperty(data, firebasePath);
       const localValue = foundry.utils.getProperty(actor, foundryPath);
       if (remoteValue !== undefined && remoteValue !== null && remoteValue !== localValue) {

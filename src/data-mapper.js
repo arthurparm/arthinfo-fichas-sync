@@ -67,6 +67,19 @@ export const ATTR_MAP = {
   'system.attributes.exhaustion': 'derivedStats.exhaustion'
 };
 
+// Paths do ATTR_MAP que só andam Foundry -> site, nunca o contrário. São
+// valores que o próprio Foundry calcula a partir de regras (dado de vida +
+// CON, talentos, efeitos ativos, homebrew da mesa) — o site também os
+// deriva (ver derivedStats.maxHp em derived-stats.ts), mas essa derivação é
+// só uma aproximação pra personagem sem Ator vinculado. Se ela sincronizar
+// de volta pro Foundry, um bug ou caso não previsto no cálculo do site
+// sobrescreve o valor real e correto que estava na ficha do Foundry — foi
+// exatamente o que aconteceu com hp.max antes desta correção. hp.value/
+// hp.temp ficam de fora desta lista: são números que o jogador ajusta
+// direto (dano sofrido, PV temporário), não algo "calculado" que só o
+// Foundry deveria ter autoridade sobre.
+export const ONE_WAY_FOUNDRY_TO_SITE = new Set(['system.attributes.hp.max']);
+
 // Sentidos do dnd5e 5.3+ vivem em system.attributes.senses.ranges.*; versões
 // antigas ainda têm darkvision/blindsight/etc. no próprio senses. Não cabem
 // bem no ATTR_MAP (0 vs ausente, e o caminho mudou) — ver readActorSenses.
