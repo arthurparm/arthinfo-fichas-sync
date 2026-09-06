@@ -1,5 +1,14 @@
 // foundry-module/src/sync-manager.js
-import { ATTR_MAP, ABILITY_KEYS, SKILL_KEY_MAP, readActorTraits, readFoundryBiography, readFoundryIdentity } from './data-mapper.js';
+import {
+  ATTR_MAP,
+  ABILITY_KEYS,
+  SKILL_KEY_MAP,
+  readActorTraits,
+  readFoundryBiography,
+  readFoundryIdentity,
+  foundrySkillValueToProficiencyLevel,
+  proficiencyLevelToFoundrySkillValue,
+} from './data-mapper.js';
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
@@ -265,7 +274,7 @@ export class SyncManager {
     SKILL_KEY_MAP.forEach(({ foundry: sk, id }) => {
       const remoteLevel = foundry.utils.getProperty(data, `proficiencies.skills.${id}`);
       if (remoteLevel === undefined) return;
-      const remoteVal = remoteLevel === 'expertise' ? 2 : remoteLevel === true ? 1 : 0;
+      const remoteVal = proficiencyLevelToFoundrySkillValue(remoteLevel);
       const currentVal = actor.system.skills?.[sk]?.value ?? 0;
       if (currentVal !== remoteVal) {
         updateData[`system.skills.${sk}.value`] = remoteVal;
@@ -436,8 +445,7 @@ export class SyncManager {
     SKILL_KEY_MAP.forEach(({ foundry: sk, id }) => {
       const value = actor.system.skills?.[sk]?.value;
       if (value === undefined) return;
-      const level = value >= 2 ? 'expertise' : value >= 1 ? true : false;
-      foundry.utils.setProperty(base, `proficiencies.skills.${id}`, level);
+      foundry.utils.setProperty(base, `proficiencies.skills.${id}`, foundrySkillValueToProficiencyLevel(value));
     });
 
     // Habilidade de conjuração: só Foundry -> site (não editável na ficha).

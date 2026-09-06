@@ -298,3 +298,25 @@ export const SKILL_KEY_MAP = [
   { foundry: 'ste', id: 'stealth' },
   { foundry: 'sur', id: 'survival' }
 ];
+
+/**
+ * Converte o valor de perícia do Foundry (0/0.5/1/2) pro `ProficiencyLevel`
+ * do site (`boolean | 'expertise'`). Meia-proficiência não tem equivalente
+ * no site e vira `false`.
+ */
+export function foundrySkillValueToProficiencyLevel(value) {
+  if (value >= 2) return 'expertise';
+  if (value >= 1) return true;
+  return false;
+}
+
+/**
+ * Converte o `ProficiencyLevel` do site (`boolean | 'expertise'`) pro valor
+ * de perícia do Foundry (0/1/2). Direção inversa de
+ * `foundrySkillValueToProficiencyLevel` — não é uma volta perfeita pra
+ * meia-proficiência (0.5), que o site não representa.
+ */
+export function proficiencyLevelToFoundrySkillValue(level) {
+  if (level === 'expertise') return 2;
+  return level ? 1 : 0;
+}
