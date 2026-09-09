@@ -27,7 +27,15 @@ export function resolvePackGroup(pack) {
 
   if (meta.packageType === 'system') {
     const systemTitle = typeof game !== 'undefined' ? game.system?.title : undefined;
-    return { id: `system:${meta.packageName || meta.system}`, label: systemTitle || meta.packageName || meta.system || 'Sistema' };
+    const baseLabel = systemTitle || meta.packageName || meta.system || 'Sistema';
+    // O sistema dnd5e empacota tanto o conteúdo atual quanto o SRD 2014
+    // (legado) sob o mesmo pacote — só dá pra distinguir pelo próprio label
+    // do compêndio, que o sistema já sufixa com "(SRD)".
+    const isSrd = /\(SRD\)/i.test(meta.label ?? '');
+    return {
+      id: `system:${meta.packageName || meta.system}${isSrd ? ':srd' : ''}`,
+      label: isSrd ? `${baseLabel} (Legacy)` : baseLabel,
+    };
   }
 
   return { id: 'world', label: 'Compêndios do mundo' };
@@ -53,26 +61,6 @@ export function groupPacksBySource(packs) {
       packs: group.packs.slice().sort((a, b) => (a.metadata.label ?? '').localeCompare(b.metadata.label ?? '', 'pt-BR')),
     }))
     .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
-}
-
-function onToggleGroup(event, target) {
-  const section = target.closest('[data-pack-group]');
-  if (!section) return;
-  const checked = target.checked;
-  section.querySelectorAll('input[data-action="toggleItem"]').forEach((checkbox) => {
-    checkbox.checked = checked;
-  });
-}
-
-function onToggleItem(event, target) {
-  const section = target.closest('[data-pack-group]');
-  if (!section) return;
-  const master = section.querySelector('input[data-action="toggleGroup"]');
-  if (!master) return;
-  const items = Array.from(section.querySelectorAll('input[data-action="toggleItem"]'));
-  const checkedCount = items.filter((checkbox) => checkbox.checked).length;
-  master.checked = checkedCount > 0 && checkedCount === items.length;
-  master.indeterminate = checkedCount > 0 && checkedCount < items.length;
 }
 
 export class CompendiumSyncDialog {
@@ -105,24 +93,21 @@ export class CompendiumSyncDialog {
       <form>
         <p>Escolha os compêndios de itens a sincronizar (ex: um compêndio próprio,
         curado com os itens liberados na sua mesa):</p>
-        <div class="form-group" style="max-height: 320px; overflow-y: auto; column-count: 1;">`;
+        <div style="max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; column-count: 1; column-width: auto;">`;
 
     for (const group of groups) {
-      const allChecked = group.packs.every((pack) => lastSelectionSet.has(pack.collection));
-
       html += `
           <fieldset data-pack-group style="border:0;margin:0 0 12px 0;padding:0;break-inside:avoid;-webkit-column-break-inside:avoid;">
-            <label style="display:flex;align-items:center;gap:6px;font-weight:700;text-transform:uppercase;font-size:0.85em;letter-spacing:0.02em;border-bottom:1px solid var(--color-border-light-tertiary, #7a7971);padding-bottom:4px;margin-bottom:6px;">
-              <input type="checkbox" data-action="toggleGroup" ${allChecked ? 'checked' : ''} />
+            <div style="font-weight:700;text-transform:uppercase;font-size:0.85em;letter-spacing:0.02em;border-bottom:1px solid var(--color-border-light-tertiary, #7a7971);padding-bottom:4px;margin-bottom:6px;">
               ${escapeHtml(group.label)}
-            </label>
+            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;">`;
 
       for (const pack of group.packs) {
         const checked = lastSelectionSet.has(pack.collection) ? 'checked' : '';
         html += `
               <label style="display:block;margin:2px 0;">
-                <input type="checkbox" name="pack" data-action="toggleItem" value="${escapeHtml(pack.collection)}" ${checked} />
+                <input type="checkbox" name="pack" value="${escapeHtml(pack.collection)}" ${checked} />
                 ${escapeHtml(pack.metadata.label)}
               </label>`;
       }
@@ -141,10 +126,6 @@ export class CompendiumSyncDialog {
     return DialogV2.wait({
       window: { title: 'Sincronizar Compêndio de Itens' },
       content: html,
-      actions: {
-        toggleGroup: onToggleGroup,
-        toggleItem: onToggleItem,
-      },
       buttons: [
         {
           action: 'sync',

@@ -31,9 +31,16 @@ describe('resolvePackGroup', () => {
   });
 
   it('usa o título do sistema ativo para compêndios do sistema', () => {
-    expect(resolvePackGroup(makePack('Items (SRD)', 'system', 'dnd5e'))).toEqual({
+    expect(resolvePackGroup(makePack('Spells', 'system', 'dnd5e'))).toEqual({
       id: 'system:dnd5e',
       label: 'D&D 5th Edition',
+    });
+  });
+
+  it('separa o conteúdo SRD (legado) do sistema num grupo próprio', () => {
+    expect(resolvePackGroup(makePack('Items (SRD)', 'system', 'dnd5e'))).toEqual({
+      id: 'system:dnd5e:srd',
+      label: 'D&D 5th Edition (Legacy)',
     });
   });
 
@@ -56,9 +63,10 @@ describe('groupPacksBySource', () => {
 
     const groups = groupPacksBySource(packs);
 
-    expect(groups.map((g) => g.label)).toEqual(['D&D 5th Edition', 'Livro do Jogador']);
-    expect(groups[0].packs.map((p) => p.metadata.label)).toEqual(['Items (SRD)', 'Spells']);
-    expect(groups[1].packs.map((p) => p.metadata.label)).toEqual(['Equipment', 'Feats']);
+    expect(groups.map((g) => g.label)).toEqual(['D&D 5th Edition', 'D&D 5th Edition (Legacy)', 'Livro do Jogador']);
+    expect(groups[0].packs.map((p) => p.metadata.label)).toEqual(['Spells']);
+    expect(groups[1].packs.map((p) => p.metadata.label)).toEqual(['Items (SRD)']);
+    expect(groups[2].packs.map((p) => p.metadata.label)).toEqual(['Equipment', 'Feats']);
   });
 
   it('lida com lista vazia', () => {
