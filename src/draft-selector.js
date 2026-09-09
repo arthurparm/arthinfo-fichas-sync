@@ -14,6 +14,19 @@ export function formatDraftOptionLabel(draft) {
   return `${name} (${klass})${assigned}`;
 }
 
+// Ids de draft já vinculados a outros Atores deste mundo (flag
+// runarcana-sync.draftId), pra não deixar dois Atores escrevendo na mesma
+// ficha. Exclui o próprio Ator que está abrindo o seletor.
+export function getDraftIdsLinkedToOtherActors(actors, currentActorId) {
+  const linked = new Set();
+  for (const actor of actors ?? []) {
+    if (actor.id === currentActorId) continue;
+    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    if (draftId) linked.add(draftId);
+  }
+  return linked;
+}
+
 function buildDraftLoadErrorMessage(err) {
   return `<p>Erro ao carregar fichas: ${escapeHtml(err?.message || 'Erro desconhecido.')}</p>
     <p>Verifique se a chave da mesa e a URL do backend estão configuradas corretamente nas configurações do módulo e
@@ -32,13 +45,18 @@ export class DraftSelectorDialog {
 
     try {
       const drafts = await this.apiClient.listDrafts();
+      const linkedElsewhere = getDraftIdsLinkedToOtherActors(game.actors, this.actor.id);
 
       let html = `<form><div class="form-group"><label>Ficha:</label><select name="draftId">`;
       if (drafts.length === 0) {
         html += `<option value="">Nenhuma ficha encontrada</option>`;
       } else {
         drafts.forEach(d => {
-          html += `<option value="${escapeHtml(d.id)}">${escapeHtml(formatDraftOptionLabel(d))}</option>`;
+          const taken = linkedElsewhere.has(d.id);
+          const label = taken
+            ? `${formatDraftOptionLabel(d)} (vinculado a outro Ator)`
+            : formatDraftOptionLabel(d);
+          html += `<option value="${escapeHtml(d.id)}" ${taken ? 'disabled' : ''}>${escapeHtml(label)}</option>`;
         });
       }
       html += `</select></div></form>`;
@@ -53,7 +71,8 @@ export class DraftSelectorDialog {
           callback: async (event, button, dialog) => {
             const select = dialog.element.querySelector('[name="draftId"]');
             const draftId = select.value;
-            if (!draftId) return;
+            const selectedOption = select.selectedOptions?.[0];
+            if (!draftId || selectedOption?.disabled) return;
             await this.actor.setFlag('runarcana-sync', 'draftId', draftId);
             ui.notifications.info(`Actor vinculado à ficha ${draftId}`);
             if (this.syncManager) {

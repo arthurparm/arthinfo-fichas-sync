@@ -31,13 +31,38 @@ function openCompendiumSyncDialog() {
   new CompendiumSyncDialog(client).render();
 }
 
-function openDraftSelector(actor) {
+async function unlinkActor(actor) {
+  syncManager?.stopListening(actor);
+  await actor.unsetFlag('runarcana-sync', 'draftId');
+  ui.notifications.info(`${actor.name}: desvinculado da ficha.`);
+}
+
+// Ator já vinculado não pode trocar de ficha direto — evita sobrescrever o
+// flag em silêncio e deixar o SyncManager escutando o draftId antigo (ver
+// issue #13: startListening() já ignora uma segunda chamada se o stream do
+// Ator ainda está de pé).
+async function openDraftSelector(actor) {
   if (!getStringSetting('mesaKey')) {
     return ui.notifications.warn('Cole a chave da mesa nas configurações do módulo');
   }
   if (!apiClient) {
     return ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
   }
+
+  const currentDraftId = actor.getFlag('runarcana-sync', 'draftId');
+  if (currentDraftId) {
+    const { DialogV2 } = foundry.applications.api;
+    const wantsUnlink = await DialogV2.confirm({
+      window: { title: 'Ator já vinculado' },
+      content: `<p><strong>${actor.name}</strong> já está vinculado à ficha <code>${currentDraftId}</code>.</p>
+        <p>Desvincular agora para escolher outra ficha? A sincronização com a ficha atual para.</p>`,
+      yes: { label: 'Desvincular' },
+      no: { label: 'Cancelar' },
+    });
+    if (!wantsUnlink) return;
+    await unlinkActor(actor);
+  }
+
   new DraftSelectorDialog(apiClient, actor, syncManager).render(true);
 }
 
