@@ -1,31 +1,32 @@
-// foundry-module/src/api-client.js
-// Cliente HTTP para o backend Runarcana (runarcana-api), substituindo o
-// acesso direto ao Firestore. Autenticação continua via Firebase Auth
-// (firebaseClient) — só o ID token é usado, para chamar a API.
-
-const TOKEN_REFRESH_INTERVAL_MS = 45 * 60 * 1000; // Firebase ID token expira em ~1h
+// Cliente HTTP para o backend Runarcana (runarcana-api).
+// Autentica com a chave da mesa (prefixo ra_mesa_), sem Firebase.
 
 export class RunarcanaApiClient {
-  constructor(firebaseClient, baseUrl) {
-    this.firebaseClient = firebaseClient;
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+  constructor({ mesaKey, baseUrl, syncKey } = {}) {
+    this.mesaKey = typeof mesaKey === 'string' ? mesaKey.trim() : '';
+    this.baseUrl = String(baseUrl || '').replace(/\/+$/, '');
+    // Instalações antigas ainda podem ter COMPENDIUM_SYNC_KEY; enviado só
+    // no PUT de compêndio, como X-Sync-Key extra por uma versão.
+    this.syncKey = typeof syncKey === 'string' ? syncKey.trim() : '';
     // Identifica esta sessão do módulo pra ignorar o próprio eco quando o
     // stream SSE devolver uma mudança que este mesmo cliente acabou de enviar.
     this.clientId = foundry.utils.randomID();
   }
 
-  async getIdToken() {
-    const user = this.firebaseClient.auth?.currentUser;
-    if (!user) {
-      throw new Error('Usuário não autenticado no Firebase.');
+  _headers(extra = {}) {
+    if (!this.mesaKey) {
+      throw new Error('Chave da mesa não configurada.');
     }
-    return user.getIdToken();
+    return {
+      'X-Mesa-Key': this.mesaKey,
+      Authorization: `Bearer ${this.mesaKey}`,
+      ...extra,
+    };
   }
 
   async listDrafts() {
-    const token = await this.getIdToken();
     const res = await fetch(`${this.baseUrl}/api/drafts`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: this._headers(),
     });
     if (!res.ok) {
       throw new Error(`Falha ao listar fichas (HTTP ${res.status}).`);
@@ -34,9 +35,8 @@ export class RunarcanaApiClient {
   }
 
   async getDraft(draftId) {
-    const token = await this.getIdToken();
     const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: this._headers(),
     });
     if (res.status === 404) return null;
     if (!res.ok) {
@@ -46,15 +46,18 @@ export class RunarcanaApiClient {
   }
 
   /**
-   * Envia um lote de itens de compêndio pro backend. Autenticado por segredo
-   * compartilhado (não pelo login do Firebase) — ver COMPENDIUM_SYNC_KEY.
+   * Envia um lote de itens de compêndio pro backend. O catálogo é global:
+   * autentica só com COMPENDIUM_SYNC_KEY (X-Sync-Key), não com a chave da mesa.
    */
-  async putCompendiumItemsBatch(items, syncKey) {
+  async putCompendiumItemsBatch(items) {
+    if (!this.syncKey) {
+      throw new Error('Chave de sincronização de compêndio não configurada.');
+    }
     const res = await fetch(`${this.baseUrl}/api/compendium/items`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'X-Sync-Key': syncKey,
+        'X-Sync-Key': this.syncKey,
       },
       body: JSON.stringify({ items }),
     });
@@ -65,15 +68,14 @@ export class RunarcanaApiClient {
   }
 
   async saveDraft(draftId, payload) {
-    const token = await this.getIdToken();
+    const { assignedUserId: _ignored, ...body } = payload || {};
     const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
       method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
+      headers: this._headers({
         'Content-Type': 'application/json',
         'X-Client-Id': this.clientId,
-      },
-      body: JSON.stringify(payload),
+      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       throw new Error(`Falha ao salvar a ficha (HTTP ${res.status}).`);
@@ -84,44 +86,30 @@ export class RunarcanaApiClient {
   /**
    * Abre o stream ao vivo (SSE) pra um draft. onMessage recebe
    * { draftId, data, sourceClientId }. Retorna um handle com close().
+   * A chave vai no query `token` porque EventSource não envia headers.
    */
   async openStream(draftId, onMessage, onError) {
-    let source = null;
-    let refreshTimer = null;
-    let closed = false;
-
-    const connect = async () => {
-      if (closed) return;
-      const token = await this.getIdToken();
-      const url = `${this.baseUrl}/api/drafts/${draftId}/stream?token=${encodeURIComponent(token)}`;
-      source = new EventSource(url);
-      source.onmessage = (event) => {
-        try {
-          onMessage(JSON.parse(event.data));
-        } catch (err) {
-          console.error('Runarcana Sync | Erro ao processar evento do stream:', err);
-        }
-      };
-      source.onerror = (event) => {
-        onError?.(event);
-      };
+    if (!this.mesaKey) {
+      throw new Error('Chave da mesa não configurada.');
+    }
+    const url = `${this.baseUrl}/api/drafts/${draftId}/stream?token=${encodeURIComponent(this.mesaKey)}`;
+    const source = new EventSource(url);
+    source.onmessage = (event) => {
+      try {
+        onMessage(JSON.parse(event.data));
+      } catch (err) {
+        console.error('Runarcana Sync | Erro ao processar evento do stream:', err);
+      }
     };
-
-    await connect();
-
-    // Reabre periodicamente com um token novo, já que o EventSource nativo
-    // reconecta sozinho após queda de conexão, mas sempre com o token da URL
-    // original — que expira.
-    refreshTimer = setInterval(() => {
-      source?.close();
-      connect();
-    }, TOKEN_REFRESH_INTERVAL_MS);
+    // EventSource nativo reconecta sozinho após queda; a chave da mesa não
+    // expira como o ID token do Firebase, então não há timer de refresh.
+    source.onerror = (event) => {
+      onError?.(event);
+    };
 
     return {
       close() {
-        closed = true;
-        clearInterval(refreshTimer);
-        source?.close();
+        source.close();
       },
     };
   }

@@ -77,18 +77,10 @@ export class CompendiumSyncDialog {
               return;
             }
 
-            const syncKey = game.settings.get('runarcana-sync', 'compendiumSyncKey');
-            if (!syncKey) {
-              ui.notifications.error(
-                'Runarcana Sync: configure a Chave de Sincronização de Compêndio nas configurações do módulo primeiro.',
-              );
-              return;
-            }
-
             await game.settings.set('runarcana-sync', SELECTION_SETTING, packIds);
 
             try {
-              const result = await syncCompendiums(apiClient, syncKey, packIds, (current, total) => {
+              const result = await syncCompendiums(apiClient, packIds, (current, total) => {
                 ui.notifications.info(`Runarcana Sync: sincronizando lote ${current} de ${total}...`);
               });
               ui.notifications.info(

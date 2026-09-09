@@ -48,7 +48,7 @@ function sanitizeActivities(itemData) {
   const activities = itemData.system.activities;
 
   // O Foundry D&D 5e v3+ espera que as activities sejam um dicionário de objetos
-  // Se o Firebase enviar como array por engano, convertemos para objeto (dicionário)
+  // Se o backend enviar como array por engano, convertemos para objeto (dicionário)
   if (Array.isArray(activities)) {
     const dict = {};
     activities.forEach((act, index) => {
@@ -177,7 +177,7 @@ export class SyncManager {
     if (!draftId || this.streams.has(actor.id)) return;
     // Marca a vaga antes de qualquer await, pra uma segunda chamada concorrente
     // (ex: duplo clique) não abrir dois streams pro mesmo ator. Removida no
-    // catch caso a inicialização falhe (ex: sem login ainda), pra uma
+    // catch caso a inicialização falhe (ex: chave inválida), pra uma
     // próxima tentativa não ficar travada indefinidamente.
     this.streams.set(actor.id, { close() {} });
 

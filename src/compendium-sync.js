@@ -73,7 +73,7 @@ function chunk(array, size) {
  * pack.collection) pro backend, em lotes de BATCH_SIZE itens.
  * onProgress(loteAtual, totalLotes) é chamado a cada lote enviado.
  */
-export async function syncCompendiums(apiClient, syncKey, packIds, onProgress) {
+export async function syncCompendiums(apiClient, packIds, onProgress) {
   const allItems = [];
   const packSummaries = [];
 
@@ -98,7 +98,7 @@ export async function syncCompendiums(apiClient, syncKey, packIds, onProgress) {
 
   const batches = chunk(allItems, BATCH_SIZE);
   for (let i = 0; i < batches.length; i++) {
-    await apiClient.putCompendiumItemsBatch(batches[i], syncKey);
+    await apiClient.putCompendiumItemsBatch(batches[i]);
     onProgress?.(i + 1, batches.length);
   }
 

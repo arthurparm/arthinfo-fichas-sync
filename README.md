@@ -3,31 +3,28 @@
 Módulo do Foundry VTT que vincula um Ator a uma ficha do Runarcana e mantém
 os dois sincronizados (atributos, HP, itens) em tempo real.
 
-A partir desta versão, o módulo **não fala mais direto com o Firestore**.
-Ele usa:
+O mundo Foundry é a mesa do mestre. A identidade desse mundo é a **chave da
+mesa** gerada no site (prefixo `ra_mesa_`). Jogadores não entram no Foundry
+neste produto — eles jogam no site.
 
-- **Firebase Auth** só para login (quem está usando o módulo).
-- **[runarcana-api](../runarcana-api)** — o backend próprio — para ler/gravar
-  fichas e para receber atualizações ao vivo (via SSE) quando a ficha muda
-  pelo site ou por outra instância do Foundry.
+O módulo **não usa Firebase**. Ele fala só com o
+[runarcana-api](../runarcana-api) para ler/gravar fichas e para receber
+atualizações ao vivo (via SSE).
 
 ## Configuração
 
-Nas configurações do módulo (Configurações do Jogo → Runarcana Firebase Sync):
+1. Instale o módulo no Foundry.
+2. Nas configurações do módulo (Configurações do Jogo → Runarcana Sync),
+   cole a **Chave da mesa**. Ela é gerada no site, na página da mesa.
+3. Recarregue o mundo.
+4. No cabeçalho da ficha de um Ator, use o botão **Runarcana Sync** para
+   vincular o Ator a uma ficha da mesa.
 
-1. **Firebase API Key / Auth Domain / Project ID / App ID**: os mesmos dados
-   do projeto Firebase já usado pelo site, só para login funcionar.
-2. **URL do Backend Runarcana**: a URL pública do `runarcana-api` publicado
-   (ex: `https://api.seudominio.com`) — veja
-   [`runarcana-api/README.md`](../runarcana-api/README.md) para como publicar
-   esse backend na Hostinger.
-3. **Chave de Sincronização de Compêndio**: o mesmo valor de
-   `COMPENDIUM_SYNC_KEY` configurado no backend — só é usado pra sincronizar
-   itens de compêndio (não é login).
+A **URL do Backend Runarcana** já vem como `https://api.runarcana.org`. Só
+altere se estiver hospedando o backend por conta própria.
 
-Depois de configurar, reinicie o mundo (as configurações exigem reload). No
-cabeçalho da ficha de um Ator, use o botão **Runarcana Sync** para fazer
-login (se ainda não estiver) e vincular o Ator a uma ficha existente.
+Sem a chave da mesa, o botão avisa para colá-la nas configurações. Não há
+login Google nem configuração de Firebase.
 
 ## Sincronizar itens de compêndio
 
@@ -49,15 +46,18 @@ isso funcionar:
    Sem essa flag, o site ainda tenta casar pelo nome do item
    automaticamente, mas o Foundry não consegue equipar o item real
    automaticamente num Ator vinculado sem essa flag.
-3. Abra **Configurações do Jogo → Runarcana Firebase Sync → Sincronizar
-   Compêndio de Itens** (ou rode o macro abaixo, se o botão não aparecer na
-   sua versão do Foundry):
+3. Cole a **Chave de Sincronização de Compêndio** (`COMPENDIUM_SYNC_KEY`
+   do backend). Ela autentica o catálogo compartilhado do site — a chave
+   da mesa não escreve nesse catálogo.
+4. Abra **Configurações do Jogo → Runarcana Sync → Sincronizar Compêndio
+   de Itens** (ou rode o macro abaixo, se o botão não aparecer na sua
+   versão do Foundry):
    ```js
    game.modules.get('runarcana-sync').api.openCompendiumSync();
    ```
-4. Marque os compêndios que quer sincronizar e confirme. A sincronização
-   roda em lotes (útil se o compêndio for grande) e mostra o progresso via
-   notificação.
+5. Marque os compêndios que quer sincronizar e confirme. A sincronização
+   usa `COMPENDIUM_SYNC_KEY`, roda em lotes (útil se o compêndio for grande) e
+   mostra o progresso via notificação.
 
 Rodar de novo mais tarde atualiza os itens já sincronizados (não duplica).
 
@@ -67,8 +67,17 @@ Rodar de novo mais tarde atualiza os itens já sincronizados (não duplica).
   (`runarcana-sync.draftId`) e abre um stream ao vivo com o backend.
 - Mudanças no Ator/itens no Foundry são enviadas ao backend (debounced, 1s)
   via `PUT`, que por sua vez distribui a mudança para quem mais estiver
-  ouvindo aquele `draftId` (por exemplo, o site).
+  ouvindo aquele `draftId` (por exemplo, o site do jogador).
 - Mudanças vindas do backend (feitas pelo site, ou por outra sessão do
   Foundry) chegam pelo stream e são aplicadas ao Ator/itens automaticamente,
   incluindo a lógica de preservar `system.activities` (ver
   [`src/sync-manager.js`](src/sync-manager.js)).
+- Alguns campos são sincronizados **numa direção só** (ex: `hp.max`, só
+  Foundry → site) — ver `ONE_WAY_FOUNDRY_TO_SITE` em `src/data-mapper.js`
+  e o `AGENTS.md` deste repo antes de "corrigir" uma sincronização que
+  parece faltar num sentido.
+
+## Gaps conhecidos
+
+- **`actor.name` nunca é sincronizado** — renomear o Ator no Foundry não
+  atualiza o nome exibido no site (issue #7).

@@ -7,9 +7,16 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+export function formatDraftOptionLabel(draft) {
+  const name = draft?.concept?.name || draft?.title || 'Sem Nome';
+  const klass = draft?.classBuild?.classId || 'Sem Classe';
+  const assigned = draft?.assignedUserId ? ` — ${draft.assignedUserId}` : '';
+  return `${name} (${klass})${assigned}`;
+}
+
 function buildDraftLoadErrorMessage(err) {
   return `<p>Erro ao carregar fichas: ${escapeHtml(err?.message || 'Erro desconhecido.')}</p>
-    <p>Verifique se a URL do backend está configurada corretamente nas configurações do módulo e
+    <p>Verifique se a chave da mesa e a URL do backend estão configuradas corretamente nas configurações do módulo e
     se o servidor (runarcana-api) está no ar.</p>`;
 }
 
@@ -31,7 +38,7 @@ export class DraftSelectorDialog {
         html += `<option value="">Nenhuma ficha encontrada</option>`;
       } else {
         drafts.forEach(d => {
-          html += `<option value="${d.id}">${escapeHtml(d.concept?.name || d.title || 'Sem Nome')} (${escapeHtml(d.classBuild?.classId || 'Sem Classe')})</option>`;
+          html += `<option value="${escapeHtml(d.id)}">${escapeHtml(formatDraftOptionLabel(d))}</option>`;
         });
       }
       html += `</select></div></form>`;
