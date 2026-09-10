@@ -1,6 +1,6 @@
 // foundry-module/src/index.js
 import { RunarcanaApiClient } from './api-client.js';
-import { DraftSelectorDialog } from './draft-selector.js';
+import { DraftSelectorDialog, getDraftIdsLinkedToOtherActors } from './draft-selector.js';
 import { CompendiumSyncDialog } from './compendium-sync-dialog.js';
 import { SyncManager } from './sync-manager.js';
 
@@ -31,10 +31,42 @@ function openCompendiumSyncDialog() {
   new CompendiumSyncDialog(client).render();
 }
 
-async function unlinkActor(actor) {
+async function unlinkActor(actor, message) {
   syncManager?.stopListening(actor);
   await actor.unsetFlag('runarcana-sync', 'draftId');
-  ui.notifications.info(`${actor.name}: desvinculado da ficha.`);
+  ui.notifications.info(message ?? `${actor.name}: desvinculado da ficha.`);
+}
+
+// Limpeza pra duplicatas que já existiam no mundo antes do hook createActor
+// (acima) começar a prevenir isso — ex: Atores duplicados numa sessão
+// anterior. Roda a cada `ready`, só pro GM (unsetFlag em Ator de outro dono
+// pode não ter permissão), e não faz nada se não achar duplicata.
+// Entre Atores vinculados à mesma ficha, mantém o mais antigo
+// (_stats.createdTime) e desvincula o(s) resto — o mais antigo é o
+// candidato mais provável a ser o original, não a cópia.
+async function cleanupDuplicateDraftLinks() {
+  if (!game.user.isGM) return;
+
+  const byDraft = new Map();
+  for (const actor of game.actors) {
+    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    if (!draftId) continue;
+    if (!byDraft.has(draftId)) byDraft.set(draftId, []);
+    byDraft.get(draftId).push(actor);
+  }
+
+  for (const actors of byDraft.values()) {
+    if (actors.length <= 1) continue;
+    const [keep, ...duplicates] = [...actors].sort(
+      (a, b) => (a._stats?.createdTime ?? 0) - (b._stats?.createdTime ?? 0),
+    );
+    for (const duplicate of duplicates) {
+      await unlinkActor(
+        duplicate,
+        `Runarcana Sync: ${duplicate.name} estava vinculado à mesma ficha que ${keep.name} — desvinculado automaticamente (limpeza de duplicata).`,
+      );
+    }
+  }
 }
 
 // Ator já vinculado não pode trocar de ficha direto — evita sobrescrever o
@@ -132,7 +164,7 @@ Hooks.once('init', () => {
   });
 });
 
-Hooks.once('ready', () => {
+Hooks.once('ready', async () => {
   // Ponto de entrada estável pra abrir a sincronização de compêndio via
   // macro, caso o botão do menu de configurações não apareça na sua versão
   // do Foundry: game.modules.get('runarcana-sync').api.openCompendiumSync()
@@ -160,6 +192,7 @@ Hooks.once('ready', () => {
   });
   syncManager = new SyncManager(apiClient);
 
+  await cleanupDuplicateDraftLinks();
   game.actors.forEach(actor => syncManager.startListening(actor));
   console.log('Runarcana Sync | Backend configurado e ouvindo atores vinculados.');
 
@@ -172,6 +205,31 @@ Hooks.once('ready', () => {
 Hooks.on('updateActor', (actor, changes, options, userId) => {
   if (userId !== game.user.id || !syncManager) return;
   syncManager.handleActorUpdate(actor, changes);
+});
+
+// Duplicar um Ator no Foundry copia os flags junto — inclusive
+// runarcana-sync.draftId. Sem essa checagem, o Ator duplicado herda o
+// vínculo do original e os dois passam a escrever na mesma ficha (mesmo
+// sem nunca ter passado pelo seletor de "Vincular").
+Hooks.on('createActor', (actor, options, userId) => {
+  if (userId !== game.user.id) return;
+  const draftId = actor.getFlag('runarcana-sync', 'draftId');
+  if (!draftId) return;
+
+  const linkedElsewhere = getDraftIdsLinkedToOtherActors(game.actors, actor.id);
+  if (!linkedElsewhere.has(draftId)) return;
+
+  actor.unsetFlag('runarcana-sync', 'draftId');
+  ui.notifications.warn(
+    `Runarcana Sync: ${actor.name} veio com um vínculo herdado (provavelmente de uma duplicação) de uma ficha já vinculada a outro Ator — desvinculado automaticamente.`,
+  );
+});
+
+// Sem isso, apagar o Ator deixava a stream SSE e o lastKnownDraft dele
+// vazando pra sempre (nada chamava stopListening).
+Hooks.on('deleteActor', (actor, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  syncManager.stopListening(actor);
 });
 
 Hooks.on('createItem', (item, options, userId) => {

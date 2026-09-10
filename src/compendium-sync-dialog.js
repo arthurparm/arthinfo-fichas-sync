@@ -3,6 +3,48 @@ import { listItemCompendia, syncCompendiums } from './compendium-sync.js';
 
 const SELECTION_SETTING = 'compendiumSyncSelection';
 
+// :has() é suportado desde Chrome/Electron 105 (2022) — bem abaixo do que o
+// Foundry V12+ exige — então não depende do tema do sistema pintar
+// `:indeterminate`: essas regras cuidam do desenho do checkbox-pai sozinhas.
+const COMPENDIUM_SYNC_STYLES = `
+  .rs-compendium-sync .rs-group-toggle {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    border: 1px solid var(--color-border-light-tertiary, #7a7971);
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .rs-compendium-sync .rs-group-toggle input[type="checkbox"] {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .rs-compendium-sync .rs-group-toggle::after {
+    content: "";
+    font-weight: 900;
+    font-size: 12px;
+    line-height: 1;
+    color: #1b1a17;
+    pointer-events: none;
+  }
+  .rs-compendium-sync .rs-group-toggle:has(input:checked),
+  .rs-compendium-sync .rs-group-toggle:has(input:indeterminate) {
+    background: #c9a227;
+  }
+  .rs-compendium-sync .rs-group-toggle:has(input:checked)::after {
+    content: "\\2713";
+  }
+  .rs-compendium-sync .rs-group-toggle:has(input:indeterminate)::after {
+    content: "\\2212";
+  }
+`;
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -63,6 +105,45 @@ export function groupPacksBySource(packs) {
     .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 }
 
+/**
+ * O checkbox do compêndio-pai tem 3 estágios: vazio (nenhum filho marcado,
+ * livro bloqueado), "-" indeterminado (alguns filhos marcados) e marcado
+ * (todos os filhos marcados). Clicar nele sempre vai pro extremo: de vazio
+ * ou indeterminado -> marca e libera todos os filhos; de marcado -> desmarca
+ * e bloqueia todos (o livro inteiro fica de fora). O estágio indeterminado só
+ * aparece de volta quando o próprio usuário desmarca um filho individual.
+ *
+ * O visual dos 3 estágios é CSS puro (:has(input:checked)/:has(input:indeterminate)
+ * em COMPENDIUM_SYNC_STYLES) em vez de pintado por JS — o navegador já
+ * mantém isso em sincronia sozinho sempre que `.checked`/`.indeterminate`
+ * mudam, então este arquivo só precisa setar essas duas propriedades.
+ */
+function updateGroupMasterState(section) {
+  const master = section.querySelector('input[data-action="toggleGroup"]');
+  if (!master) return;
+  const items = Array.from(section.querySelectorAll('input[data-action="toggleItem"]'));
+  const checkedCount = items.filter((checkbox) => checkbox.checked).length;
+  master.checked = checkedCount > 0 && checkedCount === items.length;
+  master.indeterminate = checkedCount > 0 && checkedCount < items.length;
+}
+
+function onToggleGroup(event, target) {
+  const section = target.closest('[data-pack-group]');
+  if (!section) return;
+  const enabled = target.checked;
+  section.querySelectorAll('input[data-action="toggleItem"]').forEach((checkbox) => {
+    checkbox.disabled = !enabled;
+    checkbox.checked = enabled;
+  });
+  target.indeterminate = false;
+}
+
+function onToggleItem(event, target) {
+  const section = target.closest('[data-pack-group]');
+  if (!section) return;
+  updateGroupMasterState(section);
+}
+
 export class CompendiumSyncDialog {
   constructor(apiClient) {
     this.apiClient = apiClient;
@@ -90,24 +171,31 @@ export class CompendiumSyncDialog {
     const groups = groupPacksBySource(packs);
 
     let html = `
-      <form>
+      <style>${COMPENDIUM_SYNC_STYLES}</style>
+      <form class="rs-compendium-sync">
         <p>Escolha os compêndios de itens a sincronizar (ex: um compêndio próprio,
         curado com os itens liberados na sua mesa):</p>
         <div style="max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; column-count: 1; column-width: auto;">`;
 
     for (const group of groups) {
+      const checkedCount = group.packs.filter((pack) => lastSelectionSet.has(pack.collection)).length;
+      const masterChecked = checkedCount > 0 && checkedCount === group.packs.length;
+
       html += `
           <fieldset data-pack-group style="border:0;margin:0 0 12px 0;padding:0;break-inside:avoid;-webkit-column-break-inside:avoid;">
-            <div style="font-weight:700;text-transform:uppercase;font-size:0.85em;letter-spacing:0.02em;border-bottom:1px solid var(--color-border-light-tertiary, #7a7971);padding-bottom:4px;margin-bottom:6px;">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:700;text-transform:uppercase;font-size:0.85em;letter-spacing:0.02em;border-bottom:1px solid var(--color-border-light-tertiary, #7a7971);padding-bottom:4px;margin-bottom:6px;cursor:pointer;">
+              <span class="rs-group-toggle">
+                <input type="checkbox" data-action="toggleGroup" ${masterChecked ? 'checked' : ''} />
+              </span>
               ${escapeHtml(group.label)}
-            </div>
+            </label>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;">`;
 
       for (const pack of group.packs) {
         const checked = lastSelectionSet.has(pack.collection) ? 'checked' : '';
         html += `
               <label style="display:block;margin:2px 0;">
-                <input type="checkbox" name="pack" value="${escapeHtml(pack.collection)}" ${checked} />
+                <input type="checkbox" name="pack" data-action="toggleItem" value="${escapeHtml(pack.collection)}" ${checked} />
                 ${escapeHtml(pack.metadata.label)}
               </label>`;
       }
@@ -126,6 +214,10 @@ export class CompendiumSyncDialog {
     return DialogV2.wait({
       window: { title: 'Sincronizar Compêndio de Itens' },
       content: html,
+      actions: {
+        toggleGroup: onToggleGroup,
+        toggleItem: onToggleItem,
+      },
       buttons: [
         {
           action: 'sync',
