@@ -21,12 +21,21 @@ describe('formatDraftOptionLabel', () => {
     expect(formatDraftOptionLabel({ title: 'Rascunho' })).toBe('Rascunho (Sem Classe)');
   });
 
-  it('mostra assignedUserId como texto secundário quando a API manda', () => {
-    expect(formatDraftOptionLabel({
+  it('sinaliza ficha atribuída sem vazar o uid do Firebase no dropdown', () => {
+    const label = formatDraftOptionLabel({
       concept: { name: 'Lyra' },
       classBuild: { classId: 'mago' },
       assignedUserId: 'uid-jogador',
-    })).toBe('Lyra (mago) — uid-jogador');
+    });
+    expect(label).toBe('Lyra (mago) — atribuída a um jogador');
+    expect(label).not.toContain('uid-jogador');
+  });
+
+  it('não marca atribuição quando a ficha não tem jogador', () => {
+    expect(formatDraftOptionLabel({
+      concept: { name: 'Lyra' },
+      classBuild: { classId: 'mago' },
+    })).toBe('Lyra (mago)');
   });
 });
 

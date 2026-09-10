@@ -7,10 +7,15 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+// assignedUserId é o uid do Firebase, não um nome: mostrá-lo cru enchia o
+// dropdown de identificador que não identifica ninguém. O modelo não guarda
+// display name de usuário em lugar nenhum (mesa_members só tem user_id), então
+// o site cai no mesmo genérico em mesa-detail-page. Espelhamos essa convenção
+// aqui até a API mandar um nome de verdade.
 export function formatDraftOptionLabel(draft) {
   const name = draft?.concept?.name || draft?.title || 'Sem Nome';
   const klass = draft?.classBuild?.classId || 'Sem Classe';
-  const assigned = draft?.assignedUserId ? ` — ${draft.assignedUserId}` : '';
+  const assigned = draft?.assignedUserId ? ' — atribuída a um jogador' : '';
   return `${name} (${klass})${assigned}`;
 }
 
