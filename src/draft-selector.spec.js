@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { formatDraftOptionLabel, getDraftIdsLinkedToOtherActors } from './draft-selector.js';
+import {
+  buildDraftLoadErrorMessage,
+  formatDraftOptionLabel,
+  getDraftIdsLinkedToOtherActors,
+} from './draft-selector.js';
 
 function makeActor(id, draftId) {
   return { id, getFlag: (scope, key) => (scope === 'runarcana-sync' && key === 'draftId' ? draftId : undefined) };
@@ -40,5 +44,28 @@ describe('getDraftIdsLinkedToOtherActors', () => {
   it('lida com lista vazia ou ausente', () => {
     expect(getDraftIdsLinkedToOtherActors([], 'a1').size).toBe(0);
     expect(getDraftIdsLinkedToOtherActors(undefined, 'a1').size).toBe(0);
+  });
+});
+
+describe('buildDraftLoadErrorMessage', () => {
+  it('trata 401 como chave inválida e manda gerar outra no site', () => {
+    const err = Object.assign(new Error('Falha ao listar fichas (HTTP 401).'), { status: 401 });
+    const html = buildDraftLoadErrorMessage(err);
+    expect(html).toContain('Chave da mesa inválida ou revogada');
+    // Não manda conferir URL/servidor: nesse caso o problema não é esse.
+    expect(html).not.toContain('runarcana-api');
+  });
+
+  it('mantém o diagnóstico genérico para erro que não é de autenticação', () => {
+    const err = Object.assign(new Error('Failed to fetch'), { status: undefined });
+    const html = buildDraftLoadErrorMessage(err);
+    expect(html).toContain('Failed to fetch');
+    expect(html).toContain('runarcana-api');
+  });
+
+  it('escapa a mensagem do erro no caminho genérico', () => {
+    const html = buildDraftLoadErrorMessage(new Error('<img src=x onerror=alert(1)>'));
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
   });
 });

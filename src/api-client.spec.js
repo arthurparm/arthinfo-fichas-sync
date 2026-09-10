@@ -121,3 +121,17 @@ describe('RunarcanaApiClient', () => {
     expect(MockEventSource.instances[0].closed).toBe(true);
   });
 });
+
+describe('listDrafts', () => {
+  it('propaga o status HTTP no erro para a UI distinguir chave inválida', async () => {
+    fetch.mockResolvedValue(jsonResponse({ error: 'Token inválido ou ausente.' }, 401));
+
+    await expect(makeClient().listDrafts()).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('propaga o status também quando a falha não é de autenticação', async () => {
+    fetch.mockResolvedValue(jsonResponse({}, 500));
+
+    await expect(makeClient().listDrafts()).rejects.toMatchObject({ status: 500 });
+  });
+});

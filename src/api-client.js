@@ -1,6 +1,15 @@
 // Cliente HTTP para o backend Runarcana (runarcana-api).
 // Autentica com a chave da mesa (prefixo ra_mesa_), sem Firebase.
 
+// A API não distingue chave inexistente de revogada — as duas respondem 401
+// (ver resolveMesaKeyHash em runarcana-api/src/auth.js). Carregar o status no
+// erro deixa a UI dizer 'chave inválida' em vez de mostrar um número solto.
+function apiError(message, status) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
 export class RunarcanaApiClient {
   constructor({ mesaKey, baseUrl, syncKey } = {}) {
     this.mesaKey = typeof mesaKey === 'string' ? mesaKey.trim() : '';
@@ -29,7 +38,7 @@ export class RunarcanaApiClient {
       headers: this._headers(),
     });
     if (!res.ok) {
-      throw new Error(`Falha ao listar fichas (HTTP ${res.status}).`);
+      throw apiError(`Falha ao listar fichas (HTTP ${res.status}).`, res.status);
     }
     return res.json();
   }

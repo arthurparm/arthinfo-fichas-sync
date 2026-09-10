@@ -27,7 +27,14 @@ export function getDraftIdsLinkedToOtherActors(actors, currentActorId) {
   return linked;
 }
 
-function buildDraftLoadErrorMessage(err) {
+// 401 é sempre problema da chave (ausente, errada ou revogada — a API não
+// distingue de propósito). Dizer isso evita mandar o mestre conferir a URL do
+// backend e o servidor quando o que ele precisa é gerar outra chave no site.
+export function buildDraftLoadErrorMessage(err) {
+  if (err?.status === 401) {
+    return `<p>Chave da mesa inválida ou revogada.</p>
+      <p>Gere uma nova na página da mesa no site e cole em Configurações do módulo &rsaquo; Chave da mesa.</p>`;
+  }
   return `<p>Erro ao carregar fichas: ${escapeHtml(err?.message || 'Erro desconhecido.')}</p>
     <p>Verifique se a chave da mesa e a URL do backend estão configuradas corretamente nas configurações do módulo e
     se o servidor (runarcana-api) está no ar.</p>`;
