@@ -78,16 +78,29 @@ export class RunarcanaApiClient {
 
   async saveDraft(draftId, payload) {
     const { assignedUserId: _ignored, ...body } = payload || {};
+    const ifMatch = typeof body.updatedAt === 'string' ? body.updatedAt.trim() : '';
     const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
       method: 'PUT',
       headers: this._headers({
         'Content-Type': 'application/json',
         'X-Client-Id': this.clientId,
+        ...(ifMatch ? { 'If-Match': ifMatch } : {}),
       }),
       body: JSON.stringify(body),
     });
+    if (res.status === 409) {
+      let parsed = null;
+      try {
+        parsed = await res.json();
+      } catch {
+        parsed = null;
+      }
+      const error = apiError(parsed?.error || 'Ficha foi modificada por outra origem desde a última leitura.', 409);
+      error.current = parsed?.current ?? null;
+      throw error;
+    }
     if (!res.ok) {
-      throw new Error(`Falha ao salvar a ficha (HTTP ${res.status}).`);
+      throw apiError(`Falha ao salvar a ficha (HTTP ${res.status}).`, res.status);
     }
     return res.json();
   }

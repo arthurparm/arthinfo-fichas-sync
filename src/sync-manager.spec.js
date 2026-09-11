@@ -17,7 +17,14 @@ function setProperty(object, path, value) {
 }
 
 beforeEach(() => {
-  global.foundry = { utils: { getProperty, setProperty } };
+  global.foundry = {
+    utils: {
+      getProperty,
+      setProperty,
+      deepClone: (value) => JSON.parse(JSON.stringify(value)),
+    },
+  };
+  global.ui = { notifications: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } };
 });
 
 function makeActor() {
@@ -67,5 +74,76 @@ describe('SyncManager._applyRemoteDraft — hp.max é Foundry -> site só (não 
     );
     const updateCall = actor.update.mock.calls[0][0];
     expect(updateCall).not.toHaveProperty('system.attributes.hp.max');
+  });
+});
+
+describe('SyncManager._executeActorUpdate — If-Match / 409 (FDD-35)', () => {
+  function conflict(current) {
+    return Object.assign(new Error('Ficha foi modificada por outra origem desde a última leitura.'), {
+      status: 409,
+      current,
+    });
+  }
+
+  it('manda o updatedAt da última cópia conhecida e reaplica HP do Ator em cima do draft do 409', async () => {
+    const actor = makeActor();
+    actor.name = 'Lyra';
+    actor.img = '';
+    actor.system.attributes.hp.value = 7;
+
+    const stale = {
+      id: 'draft-1',
+      updatedAt: '2026-01-01T10:00:00.000Z',
+      concept: { name: 'Lyra' },
+      derivedStats: { currentHp: 12, maxHp: 12 },
+    };
+    const fromSite = {
+      id: 'draft-1',
+      updatedAt: '2026-01-01T10:05:00.000Z',
+      concept: { name: 'Lyra' },
+      proficiencies: { skills: { athletics: true } },
+      derivedStats: { currentHp: 12, maxHp: 12 },
+    };
+    const saved = {
+      ...fromSite,
+      updatedAt: '2026-01-01T10:06:00.000Z',
+      derivedStats: { currentHp: 7, maxHp: 12 },
+    };
+
+    const apiClient = {
+      saveDraft: vi.fn().mockRejectedValueOnce(conflict(fromSite)).mockResolvedValueOnce(saved),
+    };
+    const manager = new SyncManager(apiClient);
+    manager.lastKnownDraft.set(actor.id, stale);
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    expect(apiClient.saveDraft).toHaveBeenCalledTimes(2);
+    expect(apiClient.saveDraft.mock.calls[0][1].updatedAt).toBe('2026-01-01T10:00:00.000Z');
+    const retryPayload = apiClient.saveDraft.mock.calls[1][1];
+    expect(retryPayload.updatedAt).toBe('2026-01-01T10:05:00.000Z');
+    expect(retryPayload.proficiencies.skills.athletics).toBe(true);
+    expect(retryPayload.derivedStats.currentHp).toBe(7);
+    expect(manager.lastKnownDraft.get(actor.id)).toEqual(saved);
+    expect(ui.notifications.error).not.toHaveBeenCalled();
+  });
+
+  it('não tenta de novo sem current no 409 — avisa e relança', async () => {
+    const actor = makeActor();
+    actor.name = 'Lyra';
+    actor.img = '';
+    const apiClient = {
+      saveDraft: vi.fn().mockRejectedValueOnce(conflict(null)),
+    };
+    const manager = new SyncManager(apiClient);
+    manager.lastKnownDraft.set(actor.id, {
+      id: 'draft-1',
+      updatedAt: '2026-01-01T10:00:00.000Z',
+      derivedStats: { currentHp: 12 },
+    });
+
+    await expect(manager._executeActorUpdate(actor, 'draft-1')).rejects.toMatchObject({ status: 409 });
+    expect(apiClient.saveDraft).toHaveBeenCalledTimes(1);
+    expect(ui.notifications.error).toHaveBeenCalled();
   });
 });

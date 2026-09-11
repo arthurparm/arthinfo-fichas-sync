@@ -68,7 +68,7 @@ describe('RunarcanaApiClient', () => {
       },
     });
 
-    await client.saveDraft('d1', { title: 'A', assignedUserId: 'player-1' });
+    await client.saveDraft('d1', { title: 'A', assignedUserId: 'player-1', updatedAt: '2026-01-01T10:00:00.000Z' });
     expect(fetch).toHaveBeenLastCalledWith('https://api.runarcana.org/api/drafts/d1', {
       method: 'PUT',
       headers: {
@@ -76,8 +76,28 @@ describe('RunarcanaApiClient', () => {
         Authorization: 'Bearer ra_mesa_abc',
         'Content-Type': 'application/json',
         'X-Client-Id': 'client-test-id',
+        'If-Match': '2026-01-01T10:00:00.000Z',
       },
-      body: JSON.stringify({ title: 'A' }),
+      body: JSON.stringify({ title: 'A', updatedAt: '2026-01-01T10:00:00.000Z' }),
+    });
+  });
+
+  it('em 409 expõe o draft atual do servidor sem descartar o status', async () => {
+    fetch.mockResolvedValue(
+      jsonResponse(
+        {
+          error: 'Ficha foi modificada por outra origem desde a última leitura.',
+          current: { id: 'd1', updatedAt: '2026-01-01T10:05:00.000Z', concept: { name: 'Lyra' } },
+        },
+        409,
+      ),
+    );
+
+    await expect(
+      makeClient().saveDraft('d1', { title: 'A', updatedAt: '2026-01-01T10:00:00.000Z' }),
+    ).rejects.toMatchObject({
+      status: 409,
+      current: { id: 'd1', updatedAt: '2026-01-01T10:05:00.000Z', concept: { name: 'Lyra' } },
     });
   });
 
