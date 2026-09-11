@@ -11,6 +11,7 @@ import {
   proficiencyLevelToFoundrySkillValue,
 } from './data-mapper.js';
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
+import { postSiteRollToChat } from './chat-roll.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
 function debounce(func, wait) {
@@ -201,6 +202,10 @@ export class SyncManager {
       const handle = await this.apiClient.openStream(
         draftId,
         async (message) => {
+          if (message.roll) {
+            await postSiteRollToChat(actor, message.roll);
+            return;
+          }
           if (message.sourceClientId === this.apiClient.clientId) {
             // Eco da própria escrita deste cliente: já refletido localmente.
             this.lastKnownDraft.set(actor.id, message.data);

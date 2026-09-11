@@ -147,3 +147,50 @@ describe('SyncManager._executeActorUpdate — If-Match / 409 (FDD-35)', () => {
     expect(ui.notifications.error).toHaveBeenCalled();
   });
 });
+
+describe('SyncManager.startListening — evento roll', () => {
+  it('não trata payload de roll como atualização de ficha', async () => {
+    global.game = { user: { isGM: true }, messages: { contents: [] } };
+    global.ChatMessage = {
+      getSpeaker: vi.fn(() => ({ alias: 'Karon' })),
+      create: vi.fn(async () => ({})),
+    };
+
+    const actor = {
+      ...makeActor(),
+      name: 'Karon',
+      getFlag: () => 'draft-1',
+    };
+    let onMessage;
+    const initialDraft = { id: 'draft-1', derivedStats: { currentHp: 12 } };
+    const apiClient = {
+      clientId: 'foundry-client',
+      getDraft: vi.fn().mockResolvedValue(initialDraft),
+      openStream: vi.fn(async (_id, handler) => {
+        onMessage = handler;
+        return { close: vi.fn() };
+      }),
+    };
+    const manager = new SyncManager(apiClient);
+    manager._applyRemoteDraft = vi.fn();
+    manager._executeActorUpdate = vi.fn();
+    manager._executeItemUpdate = vi.fn();
+
+    await manager.startListening(actor);
+    expect(manager.lastKnownDraft.get('actor-1')).toEqual(initialDraft);
+
+    await onMessage({
+      draftId: 'draft-1',
+      roll: { id: 'roll-1', kind: 'damage', label: 'Chama Sagrada (dano)', total: 5, dice: [5] },
+      sourceClientId: 'site',
+    });
+
+    expect(manager.lastKnownDraft.get('actor-1')).toEqual(initialDraft);
+    expect(manager._applyRemoteDraft).toHaveBeenCalledTimes(1);
+    expect(ChatMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flags: { 'runarcana-sync': { rollId: 'roll-1', kind: 'damage' } },
+      }),
+    );
+  });
+});

@@ -9,7 +9,16 @@ class MockEventSource {
     this.onerror = null;
     this.closed = false;
     this.readyState = 0;
+    this.listeners = {};
     MockEventSource.instances.push(this);
+  }
+
+  addEventListener(type, fn) {
+    (this.listeners[type] ??= []).push(fn);
+  }
+
+  emit(type, event) {
+    for (const fn of this.listeners[type] ?? []) fn(event);
   }
 
   close() {
@@ -184,6 +193,18 @@ describe('openStream — ticket em vez da chave na URL (FDD-46)', () => {
     MockEventSource.instances[0].onmessage({ data: JSON.stringify({ draftId: 'd1', data: { hp: 3 } }) });
 
     expect(onMessage).toHaveBeenCalledWith({ draftId: 'd1', data: { hp: 3 } });
+  });
+
+  it('entrega evento SSE nomeado "roll" ao onMessage', async () => {
+    fetch.mockResolvedValue(ticketResponse());
+    const onMessage = vi.fn();
+    await makeClient().openStream('d1', onMessage, () => {});
+
+    MockEventSource.instances[0].emit('roll', {
+      data: JSON.stringify({ draftId: 'd1', roll: { kind: 'damage', total: 7 } }),
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({ draftId: 'd1', roll: { kind: 'damage', total: 7 } });
   });
 
   it('ticket vencido (EventSource CLOSED) → reabre com ticket novo depois do backoff', async () => {

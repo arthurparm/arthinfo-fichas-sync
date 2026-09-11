@@ -167,6 +167,16 @@ export class RunarcanaApiClient {
           console.error('Runarcana Sync | Erro ao processar evento do stream:', err);
         }
       };
+      // event: roll é evento SSE nomeado — onmessage só recebe o default
+      // (atualização de ficha). Sem este listener a rolagem da ficha nunca
+      // chega no chat do Foundry.
+      source.addEventListener('roll', (event) => {
+        try {
+          onMessage(JSON.parse(event.data));
+        } catch (err) {
+          console.error('Runarcana Sync | Erro ao processar rolagem do stream:', err);
+        }
+      });
       source.onerror = (event) => {
         onError?.(event);
         if (source.readyState === EventSource.CLOSED && state.source === source && !state.closed) {
