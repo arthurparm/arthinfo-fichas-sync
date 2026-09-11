@@ -408,18 +408,7 @@ export class SyncManager {
     this.debouncedActorUpdate(actor, draftId);
   }
 
-  async _executeActorUpdate(actor, draftId) {
-    // O PUT substitui a ficha inteira no backend, então partimos da última
-    // ficha conhecida (preserva campos só-Web como concept/identity/equipment)
-    // e sobrepomos só os campos que o Foundry conhece, com o valor atual do ator.
-    // Sem uma ficha base conhecida (ex: falha na carga inicial), NÃO salvamos —
-    // um PUT sem base apagaria concept/identity/equipment no backend.
-    if (!this.lastKnownDraft.has(actor.id)) {
-      console.warn(`Runarcana Sync | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
-      return;
-    }
-    const base = foundry.utils.deepClone(this.lastKnownDraft.get(actor.id));
-
+  _overlayActorOntoDraft(actor, base) {
     for (const [foundryPath, firebasePath] of Object.entries(ATTR_MAP)) {
       if (foundryPath.startsWith('system.abilities')) continue;
       const currentValue = foundry.utils.getProperty(actor, foundryPath);
@@ -472,32 +461,9 @@ export class SyncManager {
     const biography = readFoundryBiography(actor);
     base.identity = { ...(base.identity ?? {}), ...biography.identity };
     base.description = { ...(base.description ?? {}), ...biography.description };
-
-    try {
-      const saved = await this.apiClient.saveDraft(draftId, base);
-      this.lastKnownDraft.set(actor.id, saved);
-    } catch (error) {
-      this.notifyApiError('salvar', error, actor);
-      throw error;
-    }
   }
 
-  async handleItemUpdate(actor) {
-    if (this.activeSyncs.has(actor.id)) return;
-    const draftId = actor.getFlag('runarcana-sync', 'draftId');
-    if (!draftId) return;
-
-    this.debouncedItemUpdate(actor, draftId);
-  }
-
-  async _executeItemUpdate(actor, draftId) {
-    // Mesmo motivo do guard em _executeActorUpdate: sem uma ficha base
-    // conhecida, um PUT aqui apagaria concept/identity/equipment no backend.
-    if (!this.lastKnownDraft.has(actor.id)) {
-      console.warn(`Runarcana Sync | Ignorando atualização de itens de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
-      return;
-    }
-
+  _overlayItemsOntoDraft(actor, base) {
     const itemsData = [];
     for (const item of actor.items) {
       try {
@@ -523,18 +489,78 @@ export class SyncManager {
       }
     }
 
-    const base = foundry.utils.deepClone(this.lastKnownDraft.get(actor.id));
     base.items = itemsData;
     base.foundryIdentity = readFoundryIdentity(actor);
     base.conditions = serializeActorConditions(actor);
     base.effects = serializeActorEffects(actor);
+  }
+
+  async _saveDraftFromActor(actor, draftId, overlay, errorAction) {
+    const writeOnce = async () => {
+      if (!this.lastKnownDraft.has(actor.id)) {
+        console.warn(`Runarcana Sync | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+        return null;
+      }
+      const base = foundry.utils.deepClone(this.lastKnownDraft.get(actor.id));
+      overlay(actor, base);
+      return this.apiClient.saveDraft(draftId, base);
+    };
 
     try {
-      const saved = await this.apiClient.saveDraft(draftId, base);
-      this.lastKnownDraft.set(actor.id, saved);
+      const saved = await writeOnce();
+      if (saved) this.lastKnownDraft.set(actor.id, saved);
     } catch (error) {
-      this.notifyApiError('salvar os itens de', error, actor);
+      // 409: o site (ou outro Ator) escreveu por cima. Não descarta a mudança
+      // do Ator — troca a base pela cópia atual do servidor e reaplica HP/itens.
+      if (error?.status === 409 && error.current) {
+        this.lastKnownDraft.set(actor.id, error.current);
+        try {
+          const saved = await writeOnce();
+          if (saved) this.lastKnownDraft.set(actor.id, saved);
+          return;
+        } catch (retryError) {
+          this.notifyApiError(errorAction, retryError, actor);
+          throw retryError;
+        }
+      }
+      this.notifyApiError(errorAction, error, actor);
       throw error;
     }
+  }
+
+  async _executeActorUpdate(actor, draftId) {
+    // O PUT substitui a ficha inteira no backend, então partimos da última
+    // ficha conhecida (preserva campos só-Web como concept/identity/equipment)
+    // e sobrepomos só os campos que o Foundry conhece, com o valor atual do ator.
+    // Sem uma ficha base conhecida (ex: falha na carga inicial), NÃO salvamos —
+    // um PUT sem base apagaria concept/identity/equipment no backend.
+    if (!this.lastKnownDraft.has(actor.id)) {
+      console.warn(`Runarcana Sync | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+      return;
+    }
+    await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
+      this._overlayActorOntoDraft(currentActor, base);
+    }, 'salvar');
+  }
+
+  async handleItemUpdate(actor) {
+    if (this.activeSyncs.has(actor.id)) return;
+    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    if (!draftId) return;
+
+    this.debouncedItemUpdate(actor, draftId);
+  }
+
+  async _executeItemUpdate(actor, draftId) {
+    // Mesmo motivo do guard em _executeActorUpdate: sem uma ficha base
+    // conhecida, um PUT aqui apagaria concept/identity/equipment no backend.
+    if (!this.lastKnownDraft.has(actor.id)) {
+      console.warn(`Runarcana Sync | Ignorando atualização de itens de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+      return;
+    }
+
+    await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
+      this._overlayItemsOntoDraft(currentActor, base);
+    }, 'salvar os itens de');
   }
 }
