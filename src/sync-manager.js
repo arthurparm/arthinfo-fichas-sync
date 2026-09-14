@@ -277,7 +277,7 @@ export class SyncManager {
       }
     });
 
-    // 2c. Proficiência de perícia (0/0.5/1/2 no Foundry <-> false/'expertise' no site)
+    // 2c. Proficiência de perícia (0/0.5/1/2 no Foundry <-> false/'half'/true/'expertise' no site, FDD-10)
     SKILL_KEY_MAP.forEach(({ foundry: sk, id }) => {
       const remoteLevel = foundry.utils.getProperty(data, `proficiencies.skills.${id}`);
       if (remoteLevel === undefined) return;
@@ -437,7 +437,7 @@ export class SyncManager {
     });
 
     // Proficiência de perícia: Foundry manda (0/0.5/1/2 -> ProficiencyLevel
-    // do site; meia-proficiência não tem equivalente e vira `false`)
+    // do site, incluindo 'half' pra meia-proficiência, FDD-10)
     SKILL_KEY_MAP.forEach(({ foundry: sk, id }) => {
       const value = actor.system.skills?.[sk]?.value;
       if (value === undefined) return;

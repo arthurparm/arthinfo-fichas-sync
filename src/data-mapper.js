@@ -287,9 +287,8 @@ export const ABILITY_KEYS = [
  * IDs de core/rules/skills.ts do rpg-runarcana-ficha. Processamento especial
  * (não cabe no ATTR_MAP genérico) porque o valor não é um booleano simples:
  * o Foundry usa 0/0.5/1/2 (não-proficiente/meia-proficiência/proficiente/
- * expertise), o site usa `ProficiencyLevel` (boolean | 'expertise'). A
- * meia-proficiência não tem equivalente no site e vira `false` ao sincronizar
- * Foundry → site.
+ * expertise), o site usa `ProficiencyLevel` (boolean | 'expertise' | 'half',
+ * FDD-10).
  */
 export const SKILL_KEY_MAP = [
   { foundry: 'acr', id: 'acrobatics' },
@@ -314,22 +313,22 @@ export const SKILL_KEY_MAP = [
 
 /**
  * Converte o valor de perícia do Foundry (0/0.5/1/2) pro `ProficiencyLevel`
- * do site (`boolean | 'expertise'`). Meia-proficiência não tem equivalente
- * no site e vira `false`.
+ * do site (`boolean | 'expertise' | 'half'`, FDD-10).
  */
 export function foundrySkillValueToProficiencyLevel(value) {
   if (value >= 2) return 'expertise';
   if (value >= 1) return true;
+  if (value >= 0.5) return 'half';
   return false;
 }
 
 /**
- * Converte o `ProficiencyLevel` do site (`boolean | 'expertise'`) pro valor
- * de perícia do Foundry (0/1/2). Direção inversa de
- * `foundrySkillValueToProficiencyLevel` — não é uma volta perfeita pra
- * meia-proficiência (0.5), que o site não representa.
+ * Converte o `ProficiencyLevel` do site (`boolean | 'expertise' | 'half'`)
+ * pro valor de perícia do Foundry (0/0.5/1/2). Direção inversa de
+ * `foundrySkillValueToProficiencyLevel`.
  */
 export function proficiencyLevelToFoundrySkillValue(level) {
   if (level === 'expertise') return 2;
+  if (level === 'half') return 0.5;
   return level ? 1 : 0;
 }

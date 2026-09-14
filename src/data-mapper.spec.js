@@ -13,8 +13,8 @@ describe('foundrySkillValueToProficiencyLevel', () => {
     expect(foundrySkillValueToProficiencyLevel(0)).toBe(false);
   });
 
-  it('converte 0.5 (meia-proficiencia) para false (sem equivalente no site)', () => {
-    expect(foundrySkillValueToProficiencyLevel(0.5)).toBe(false);
+  it('converte 0.5 (meia-proficiencia) para "half" (FDD-10)', () => {
+    expect(foundrySkillValueToProficiencyLevel(0.5)).toBe('half');
   });
 
   it('converte 1 (proficiente) para true', () => {
@@ -39,8 +39,12 @@ describe('proficiencyLevelToFoundrySkillValue', () => {
     expect(proficiencyLevelToFoundrySkillValue('expertise')).toBe(2);
   });
 
-  it('faz o ciclo ida-e-volta para os niveis que o site representa (true/false/expertise)', () => {
-    for (const level of [false, true, 'expertise']) {
+  it('converte "half" para 0.5', () => {
+    expect(proficiencyLevelToFoundrySkillValue('half')).toBe(0.5);
+  });
+
+  it('faz o ciclo ida-e-volta para todos os niveis que o site representa (FDD-10)', () => {
+    for (const level of [false, 'half', true, 'expertise']) {
       const foundryValue = proficiencyLevelToFoundrySkillValue(level);
       expect(foundrySkillValueToProficiencyLevel(foundryValue)).toBe(level);
     }
