@@ -27,7 +27,13 @@ não “corrigir” sem pedido. Ecossistema e regras de trabalho:
   `ONE_WAY_FOUNDRY_TO_SITE` (campos que só vão de Foundry pro site, nunca
   voltam — ver comentário no arquivo sobre o motivo de `hp.max` estar
   aqui). Ao adicionar um campo novo ao mapa, decidir explicitamente a
-  direção — não assumir bidirecional por padrão.
+  direção — não assumir bidirecional por padrão. Pra valor que o `dnd5e`
+  já calcula (bônus de ataque, CD de magia etc.), preferir puxar o dado
+  **derivado** do Foundry (`item.labels`, activity já resolvida) em vez
+  de só `item.toObject()` — isso serializa a fonte, não o resultado
+  depois de efeito ativo/estilo de luta/bônus mágico — e mandar pro site
+  como campo one-way, no lugar de deixar o site reimplementar a fórmula.
+  Ver `../AGENTS.md` (Arquitetura que atravessa os repos).
 - `src/draft-selector.js` — diálogo de vincular um Ator a um draft
   existente (`actor.setFlag('runarcana-sync', 'draftId', ...)` — esse flag
   no Ator é a fonte da verdade de "qual draft está vinculado", não o
