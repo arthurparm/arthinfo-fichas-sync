@@ -55,19 +55,26 @@ export class RunarcanaApiClient {
   }
 
   /**
-   * Envia um lote de itens de compêndio pro backend. O catálogo é global:
-   * autentica só com COMPENDIUM_SYNC_KEY (X-Sync-Key), não com a chave da mesa.
+   * Envia um lote de itens de compêndio pro backend (FDD-16). X-Sync-Key
+   * (COMPENDIUM_SYNC_KEY) escreve no catálogo compartilhado do site; sem ela,
+   * a chave da mesa escreve só no homebrew daquela mesa. Manda as duas quando
+   * as duas estiverem configuradas — o backend prioriza X-Sync-Key, mantendo
+   * o comportamento de instalações antigas.
    */
   async putCompendiumItemsBatch(items) {
-    if (!this.syncKey) {
-      throw new Error('Chave de sincronização de compêndio não configurada.');
+    if (!this.syncKey && !this.mesaKey) {
+      throw new Error('Configure a chave de sincronização de compêndio ou a chave da mesa.');
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.mesaKey) {
+      headers['X-Mesa-Key'] = this.mesaKey;
+    }
+    if (this.syncKey) {
+      headers['X-Sync-Key'] = this.syncKey;
     }
     const res = await fetch(`${this.baseUrl}/api/compendium/items`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Sync-Key': this.syncKey,
-      },
+      headers,
       body: JSON.stringify({ items }),
     });
     if (!res.ok) {

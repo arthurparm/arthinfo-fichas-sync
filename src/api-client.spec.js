@@ -127,21 +127,45 @@ describe('RunarcanaApiClient', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('autentica o PUT de compêndio só com X-Sync-Key, não com a chave da mesa', async () => {
+  it('PUT de compêndio: sem sync key nem chave da mesa, falha sem chamar fetch', async () => {
     fetch.mockResolvedValue(jsonResponse({ ok: true }));
 
-    await expect(makeClient().putCompendiumItemsBatch([{ name: 'Adaga' }])).rejects.toThrow(
-      'Chave de sincronização de compêndio não configurada.',
+    await expect(makeClient({ mesaKey: '' }).putCompendiumItemsBatch([{ name: 'Adaga' }])).rejects.toThrow(
+      'Configure a chave de sincronização de compêndio ou a chave da mesa.',
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
 
-    await makeClient({ syncKey: 'global-sync' }).putCompendiumItemsBatch([{ name: 'Adaga' }]);
+  it('PUT de compêndio com só X-Sync-Key (instalação antiga, sem chave da mesa)', async () => {
+    fetch.mockResolvedValue(jsonResponse({ ok: true }));
+
+    await makeClient({ mesaKey: '', syncKey: 'global-sync' }).putCompendiumItemsBatch([{ name: 'Adaga' }]);
     expect(fetch.mock.calls[0][1].headers).toEqual({
       'Content-Type': 'application/json',
       'X-Sync-Key': 'global-sync',
     });
   });
 
+  it('PUT de compêndio manda X-Mesa-Key e X-Sync-Key juntos quando as duas estão configuradas (FDD-16)', async () => {
+    fetch.mockResolvedValue(jsonResponse({ ok: true }));
+
+    await makeClient({ syncKey: 'global-sync' }).putCompendiumItemsBatch([{ name: 'Adaga' }]);
+    expect(fetch.mock.calls[0][1].headers).toEqual({
+      'Content-Type': 'application/json',
+      'X-Mesa-Key': 'ra_mesa_abc',
+      'X-Sync-Key': 'global-sync',
+    });
+  });
+
+  it('PUT de compêndio só com chave da mesa (sem sync key): homebrew escopado à mesa', async () => {
+    fetch.mockResolvedValue(jsonResponse({ ok: true }));
+
+    await makeClient().putCompendiumItemsBatch([{ name: 'Adaga Homebrew' }]);
+    expect(fetch.mock.calls[0][1].headers).toEqual({
+      'Content-Type': 'application/json',
+      'X-Mesa-Key': 'ra_mesa_abc',
+    });
+  });
 });
 
 describe('openStream — ticket em vez da chave na URL (FDD-46)', () => {

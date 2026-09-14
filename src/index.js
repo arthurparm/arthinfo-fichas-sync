@@ -14,8 +14,11 @@ function getStringSetting(key) {
 
 function openCompendiumSyncDialog() {
   const syncKey = getStringSetting('compendiumSyncKey');
-  if (!syncKey) {
-    ui.notifications.warn('Cole a chave de sincronização de compêndio nas configurações do módulo.');
+  const mesaKey = getStringSetting('mesaKey');
+  if (!syncKey && !mesaKey) {
+    ui.notifications.warn(
+      'Cole a chave de sincronização de compêndio (catálogo compartilhado) ou a chave da mesa (homebrew da sua mesa) nas configurações do módulo.',
+    );
     return;
   }
   const backendUrl = getStringSetting('backendUrl');
@@ -24,7 +27,7 @@ function openCompendiumSyncDialog() {
     return;
   }
   const client = new RunarcanaApiClient({
-    mesaKey: getStringSetting('mesaKey'),
+    mesaKey,
     baseUrl: backendUrl,
     syncKey,
   });
@@ -128,7 +131,7 @@ Hooks.once('init', () => {
 
   game.settings.register('runarcana-sync', 'compendiumSyncKey', {
     name: 'Chave de Sincronização de Compêndio',
-    hint: 'Só para enviar itens ao catálogo compartilhado do site (COMPENDIUM_SYNC_KEY). Não é a chave da mesa nem login.',
+    hint: 'Só para enviar itens ao catálogo compartilhado do site (COMPENDIUM_SYNC_KEY). Não é a chave da mesa nem login. Deixe em branco e use só a Chave da mesa (acima) para sincronizar homebrew restrito à sua mesa, em vez do catálogo público.',
     scope: 'world',
     config: true,
     type: String,
