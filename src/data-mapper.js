@@ -64,7 +64,15 @@ export const ATTR_MAP = {
   // --- Testes de morte e exaustão ---
   'system.attributes.death.success': 'derivedStats.deathSaveSuccesses',
   'system.attributes.death.failure': 'derivedStats.deathSaveFailures',
-  'system.attributes.exhaustion': 'derivedStats.exhaustion'
+  'system.attributes.exhaustion': 'derivedStats.exhaustion',
+
+  // --- Deslocamento (FDD-47) ---
+  // system.attributes.movement.walk já é o valor final pós-prepareData()
+  // (raça + efeito ativo + item que altera deslocamento), então não precisa
+  // reimplementar a regra no site — mesma lógica de attackBonus/saveDc
+  // (ver AGENTS.md, Arquitetura que atravessa os repos). Só Foundry -> site,
+  // ver ONE_WAY_FOUNDRY_TO_SITE.
+  'system.attributes.movement.walk': 'identity.movementSpeed'
 };
 
 // Paths do ATTR_MAP que só andam Foundry -> site, nunca o contrário. São
@@ -78,7 +86,10 @@ export const ATTR_MAP = {
 // hp.temp ficam de fora desta lista: são números que o jogador ajusta
 // direto (dano sofrido, PV temporário), não algo "calculado" que só o
 // Foundry deveria ter autoridade sobre.
-export const ONE_WAY_FOUNDRY_TO_SITE = new Set(['system.attributes.hp.max']);
+export const ONE_WAY_FOUNDRY_TO_SITE = new Set([
+  'system.attributes.hp.max',
+  'system.attributes.movement.walk',
+]);
 
 // Sentidos do dnd5e 5.3+ vivem em system.attributes.senses.ranges.*; versões
 // antigas ainda têm darkvision/blindsight/etc. no próprio senses. Não cabem

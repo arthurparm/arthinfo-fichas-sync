@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ATTR_MAP,
+  ONE_WAY_FOUNDRY_TO_SITE,
   foundrySkillValueToProficiencyLevel,
   proficiencyLevelToFoundrySkillValue,
   readActorSenses,
@@ -7,6 +9,13 @@ import {
   readFoundryIdentity,
   readTraitValues,
 } from './data-mapper.js';
+
+describe('ATTR_MAP — deslocamento (FDD-47)', () => {
+  it('mapeia system.attributes.movement.walk pra identity.movementSpeed, só Foundry -> site', () => {
+    expect(ATTR_MAP['system.attributes.movement.walk']).toBe('identity.movementSpeed');
+    expect(ONE_WAY_FOUNDRY_TO_SITE.has('system.attributes.movement.walk')).toBe(true);
+  });
+});
 
 describe('foundrySkillValueToProficiencyLevel', () => {
   it('converte 0 (nao-proficiente) para false', () => {
