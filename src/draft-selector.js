@@ -1,5 +1,3 @@
-import { collection, query, where, getDocs } from 'firebase/firestore';
-
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -9,29 +7,47 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-function buildDraftLoadErrorMessage(err, firebaseClient) {
-  const isPermissionError =
-    err?.code === 'permission-denied' ||
-    err?.message?.includes('Missing or insufficient permissions');
+// assignedUserId é o uid do Firebase, não um nome: mostrá-lo cru enchia o
+// dropdown de identificador que não identifica ninguém. O modelo não guarda
+// display name de usuário em lugar nenhum (mesa_members só tem user_id), então
+// o site cai no mesmo genérico em mesa-detail-page. Espelhamos essa convenção
+// aqui até a API mandar um nome de verdade.
+export function formatDraftOptionLabel(draft) {
+  const name = draft?.concept?.name || draft?.title || 'Sem Nome';
+  const klass = draft?.classBuild?.classId || 'Sem Classe';
+  const assigned = draft?.assignedUserId ? ' — atribuída a um jogador' : '';
+  return `${name} (${klass})${assigned}`;
+}
 
-  if (!isPermissionError) {
-    return `<p>Erro ao carregar fichas: ${escapeHtml(err?.message || 'Erro desconhecido.')}</p>`;
+// Ids de draft já vinculados a outros Atores deste mundo (flag
+// runarcana-sync.draftId), pra não deixar dois Atores escrevendo na mesma
+// ficha. Exclui o próprio Ator que está abrindo o seletor.
+export function getDraftIdsLinkedToOtherActors(actors, currentActorId) {
+  const linked = new Set();
+  for (const actor of actors ?? []) {
+    if (actor.id === currentActorId) continue;
+    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    if (draftId) linked.add(draftId);
   }
+  return linked;
+}
 
-  const projectId = firebaseClient?.app?.options?.projectId || 'desconhecido';
-  const uid = firebaseClient?.auth?.currentUser?.uid || 'não disponível';
-
-  return `
-    <p>O login funcionou, mas o Firestore bloqueou a leitura das fichas.</p>
-    <p><strong>Projeto:</strong> ${escapeHtml(projectId)}<br><strong>UID:</strong> ${escapeHtml(uid)}<br><strong>Coleção:</strong> character_drafts</p>
-    <p>Verifique se as regras do Firestore permitem ler documentos de <code>character_drafts</code> quando o usuário autenticado for o dono do documento, por exemplo usando o campo <code>ownerId</code>.</p>
-    <p>Se isso continuar mesmo com as regras corretas, confira se o módulo está apontando para o projeto Firebase certo.</p>
-  `;
+// 401 é sempre problema da chave (ausente, errada ou revogada — a API não
+// distingue de propósito). Dizer isso evita mandar o mestre conferir a URL do
+// backend e o servidor quando o que ele precisa é gerar outra chave no site.
+export function buildDraftLoadErrorMessage(err) {
+  if (err?.status === 401) {
+    return `<p>Chave da mesa inválida ou revogada.</p>
+      <p>Gere uma nova na página da mesa no site e cole em Configurações do módulo &rsaquo; Chave da mesa.</p>`;
+  }
+  return `<p>Erro ao carregar fichas: ${escapeHtml(err?.message || 'Erro desconhecido.')}</p>
+    <p>Verifique se a chave da mesa e a URL do backend estão configuradas corretamente nas configurações do módulo e
+    se o servidor (runarcana-api) está no ar.</p>`;
 }
 
 export class DraftSelectorDialog {
-  constructor(firebaseClient, actor, syncManager) {
-    this.firebaseClient = firebaseClient;
+  constructor(apiClient, actor, syncManager) {
+    this.apiClient = apiClient;
     this.actor = actor;
     this.syncManager = syncManager;
   }
@@ -40,20 +56,19 @@ export class DraftSelectorDialog {
     const { DialogV2 } = foundry.applications.api;
 
     try {
-      const user = await this.firebaseClient.waitForAuthReady({ requireUser: true });
-      const q = query(
-        collection(this.firebaseClient.db, 'character_drafts'),
-        where('ownerId', '==', user.uid)
-      );
-      const snap = await getDocs(q);
-      const drafts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      
+      const drafts = await this.apiClient.listDrafts();
+      const linkedElsewhere = getDraftIdsLinkedToOtherActors(game.actors, this.actor.id);
+
       let html = `<form><div class="form-group"><label>Ficha:</label><select name="draftId">`;
       if (drafts.length === 0) {
         html += `<option value="">Nenhuma ficha encontrada</option>`;
       } else {
         drafts.forEach(d => {
-          html += `<option value="${d.id}">${d.concept?.name || 'Sem Nome'} (${d.classBuild?.classId || 'Sem Classe'})</option>`;
+          const taken = linkedElsewhere.has(d.id);
+          const label = taken
+            ? `${formatDraftOptionLabel(d)} (vinculado a outro Ator)`
+            : formatDraftOptionLabel(d);
+          html += `<option value="${escapeHtml(d.id)}" ${taken ? 'disabled' : ''}>${escapeHtml(label)}</option>`;
         });
       }
       html += `</select></div></form>`;
@@ -68,7 +83,8 @@ export class DraftSelectorDialog {
           callback: async (event, button, dialog) => {
             const select = dialog.element.querySelector('[name="draftId"]');
             const draftId = select.value;
-            if (!draftId) return;
+            const selectedOption = select.selectedOptions?.[0];
+            if (!draftId || selectedOption?.disabled) return;
             await this.actor.setFlag('runarcana-sync', 'draftId', draftId);
             ui.notifications.info(`Actor vinculado à ficha ${draftId}`);
             if (this.syncManager) {
@@ -80,7 +96,7 @@ export class DraftSelectorDialog {
     } catch(err) {
       return DialogV2.prompt({
         window: { title: "Erro" },
-        content: buildDraftLoadErrorMessage(err, this.firebaseClient),
+        content: buildDraftLoadErrorMessage(err),
         ok: { label: "Fechar" }
       });
     }

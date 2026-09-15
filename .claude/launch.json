@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "runarcana-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "../rpg-runarcana-ficha", "run", "start"],
+      "port": 4200
+    },
+    {
+      "name": "runarcana-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "../runarcana-api", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

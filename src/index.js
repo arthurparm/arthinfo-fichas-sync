@@ -1,10 +1,10 @@
 // foundry-module/src/index.js
-import { FirebaseClient } from './firebase-client.js';
-import { RunarcanaLoginDialog } from './login-dialog.js';
-import { DraftSelectorDialog } from './draft-selector.js';
+import { RunarcanaApiClient } from './api-client.js';
+import { DraftSelectorDialog, getDraftIdsLinkedToOtherActors } from './draft-selector.js';
+import { CompendiumSyncDialog } from './compendium-sync-dialog.js';
 import { SyncManager } from './sync-manager.js';
 
-let firebaseClient = null;
+let apiClient = null;
 let syncManager = null;
 
 function getStringSetting(key) {
@@ -12,95 +12,116 @@ function getStringSetting(key) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function getFirebaseConfigFromSimpleFields() {
-  const apiKey = getStringSetting('apiKey');
-  const authDomain = getStringSetting('authDomain');
-  const projectId = getStringSetting('projectId');
-  const appId = getStringSetting('appId');
-
-  const missingFields = [];
-  if (!apiKey) missingFields.push('apiKey');
-  if (!authDomain) missingFields.push('authDomain');
-  if (!projectId) missingFields.push('projectId');
-
-  if (missingFields.length > 0) {
-    return { config: {}, missingFields };
+function openCompendiumSyncDialog() {
+  const syncKey = getStringSetting('compendiumSyncKey');
+  const mesaKey = getStringSetting('mesaKey');
+  if (!syncKey && !mesaKey) {
+    ui.notifications.warn(
+      'Cole a chave de sincronização de compêndio (catálogo compartilhado) ou a chave da mesa (homebrew da sua mesa) nas configurações do módulo.',
+    );
+    return;
   }
-
-  const config = { apiKey, authDomain, projectId };
-  if (appId) config.appId = appId;
-
-  return { config, missingFields: [] };
+  const backendUrl = getStringSetting('backendUrl');
+  if (!backendUrl) {
+    ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
+    return;
+  }
+  const client = new RunarcanaApiClient({
+    mesaKey,
+    baseUrl: backendUrl,
+    syncKey,
+  });
+  new CompendiumSyncDialog(client).render();
 }
 
-function extractConfigFromAdvancedField(rawConfig) {
-  if (!rawConfig) {
-    return { config: {}, missingFields: [] };
+async function unlinkActor(actor, message) {
+  syncManager?.stopListening(actor);
+  await actor.unsetFlag('runarcana-sync', 'draftId');
+  ui.notifications.info(message ?? `${actor.name}: desvinculado da ficha.`);
+}
+
+// Limpeza pra duplicatas que já existiam no mundo antes do hook createActor
+// (acima) começar a prevenir isso — ex: Atores duplicados numa sessão
+// anterior. Roda a cada `ready`, só pro GM (unsetFlag em Ator de outro dono
+// pode não ter permissão), e não faz nada se não achar duplicata.
+// Entre Atores vinculados à mesma ficha, mantém o mais antigo
+// (_stats.createdTime) e desvincula o(s) resto — o mais antigo é o
+// candidato mais provável a ser o original, não a cópia.
+async function cleanupDuplicateDraftLinks() {
+  if (!game.user.isGM) return;
+
+  const byDraft = new Map();
+  for (const actor of game.actors) {
+    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    if (!draftId) continue;
+    if (!byDraft.has(draftId)) byDraft.set(draftId, []);
+    byDraft.get(draftId).push(actor);
   }
 
-  try {
-    const parsedConfig = JSON.parse(rawConfig);
-    const apiKey = typeof parsedConfig.apiKey === 'string' ? parsedConfig.apiKey.trim() : '';
-    const authDomain = typeof parsedConfig.authDomain === 'string' ? parsedConfig.authDomain.trim() : '';
-    const projectId = typeof parsedConfig.projectId === 'string' ? parsedConfig.projectId.trim() : '';
-    const appId = typeof parsedConfig.appId === 'string' ? parsedConfig.appId.trim() : '';
-
-    const missingFields = [];
-    if (!apiKey) missingFields.push('apiKey');
-    if (!authDomain) missingFields.push('authDomain');
-    if (!projectId) missingFields.push('projectId');
-
-    if (missingFields.length > 0) {
-      return { config: {}, missingFields };
-    }
-
-    const config = { ...parsedConfig, apiKey, authDomain, projectId };
-    if (appId) config.appId = appId;
-
-    return { config, missingFields: [] };
-  } catch (parseError) {
-    console.warn(
-      'Runarcana Sync | Erro ao interpretar JSON Avançado. Tentando extrair chaves via Regex.',
-      parseError
+  for (const actors of byDraft.values()) {
+    if (actors.length <= 1) continue;
+    const [keep, ...duplicates] = [...actors].sort(
+      (a, b) => (a._stats?.createdTime ?? 0) - (b._stats?.createdTime ?? 0),
     );
-
-    // Permite colar um objeto JS em vez de JSON estrito, por exemplo:
-    // const firebaseConfig = { apiKey: "...", authDomain: "...", projectId: "..." }
-    const extractKey = (key) => {
-      const match = rawConfig.match(new RegExp(`${key}['"\\s]*:['"\\s]*([^'",\\s]+)`));
-      return match ? match[1].trim() : '';
-    };
-
-    const apiKey = extractKey('apiKey');
-    const authDomain = extractKey('authDomain');
-    const projectId = extractKey('projectId');
-    const appId = extractKey('appId');
-    const storageBucket = extractKey('storageBucket');
-    const messagingSenderId = extractKey('messagingSenderId');
-
-    const missingFields = [];
-    if (!apiKey) missingFields.push('apiKey');
-    if (!authDomain) missingFields.push('authDomain');
-    if (!projectId) missingFields.push('projectId');
-
-    if (missingFields.length > 0) {
-      return { config: {}, missingFields };
+    for (const duplicate of duplicates) {
+      await unlinkActor(
+        duplicate,
+        `Runarcana Sync: ${duplicate.name} estava vinculado à mesma ficha que ${keep.name} — desvinculado automaticamente (limpeza de duplicata).`,
+      );
     }
-
-    const config = { apiKey, authDomain, projectId };
-    if (appId) config.appId = appId;
-    if (storageBucket) config.storageBucket = storageBucket;
-    if (messagingSenderId) config.messagingSenderId = messagingSenderId;
-
-    return { config, missingFields: [] };
   }
+}
+
+// Ator já vinculado não pode trocar de ficha direto — evita sobrescrever o
+// flag em silêncio e deixar o SyncManager escutando o draftId antigo (ver
+// issue #13: startListening() já ignora uma segunda chamada se o stream do
+// Ator ainda está de pé).
+async function openDraftSelector(actor) {
+  if (!getStringSetting('mesaKey')) {
+    return ui.notifications.warn('Cole a chave da mesa nas configurações do módulo');
+  }
+  if (!apiClient) {
+    return ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
+  }
+
+  const currentDraftId = actor.getFlag('runarcana-sync', 'draftId');
+  if (currentDraftId) {
+    const { DialogV2 } = foundry.applications.api;
+    const wantsUnlink = await DialogV2.confirm({
+      window: { title: 'Ator já vinculado' },
+      content: `<p><strong>${actor.name}</strong> já está vinculado à ficha <code>${currentDraftId}</code>.</p>
+        <p>Desvincular agora para escolher outra ficha? A sincronização com a ficha atual para.</p>`,
+      yes: { label: 'Desvincular' },
+      no: { label: 'Cancelar' },
+    });
+    if (!wantsUnlink) return;
+    await unlinkActor(actor);
+  }
+
+  new DraftSelectorDialog(apiClient, actor, syncManager).render(true);
+}
+
+// Adaptador mínimo pra aparecer como botão no painel de configurações do
+// módulo (game.settings.registerMenu exige uma classe estilo Application).
+// Se o botão não renderizar certinho na sua versão do Foundry, use o macro
+// documentado no README (game.modules.get('runarcana-sync').api.openCompendiumSync()).
+class CompendiumSyncMenuApp extends FormApplication {
+  constructor() {
+    super({});
+  }
+
+  render() {
+    openCompendiumSyncDialog();
+    return this;
+  }
+
+  async _updateObject() {}
 }
 
 Hooks.once('init', () => {
-  // Configuração amigável: Campos separados para cada credencial do Firebase
-  game.settings.register('runarcana-sync', 'apiKey', {
-    name: 'Firebase API Key',
-    hint: 'Sua chave de API web do Firebase (apiKey).',
+  game.settings.register('runarcana-sync', 'mesaKey', {
+    name: 'Chave da mesa',
+    hint: 'Gerada no site, na página da mesa. Cole aqui.',
     scope: 'world',
     config: true,
     type: String,
@@ -108,93 +129,110 @@ Hooks.once('init', () => {
     requiresReload: true
   });
 
-  game.settings.register('runarcana-sync', 'authDomain', {
-    name: 'Firebase Auth Domain',
-    hint: 'Seu domínio de autenticação (authDomain). Ex: seu-projeto.firebaseapp.com',
+  game.settings.register('runarcana-sync', 'compendiumSyncKey', {
+    name: 'Chave de Sincronização de Compêndio',
+    hint: 'Só para enviar itens ao catálogo compartilhado do site (COMPENDIUM_SYNC_KEY). Não é a chave da mesa nem login. Deixe em branco e use só a Chave da mesa (acima) para sincronizar homebrew restrito à sua mesa, em vez do catálogo público.',
     scope: 'world',
     config: true,
     type: String,
     default: '',
-    requiresReload: true
   });
 
-  game.settings.register('runarcana-sync', 'projectId', {
-    name: 'Firebase Project ID',
-    hint: 'O ID do seu projeto no Firebase (projectId).',
+  // Guarda a última seleção de compêndios pro diálogo de sincronização não
+  // precisar remarcar tudo toda vez. Não aparece no painel de config.
+  game.settings.register('runarcana-sync', 'compendiumSyncSelection', {
     scope: 'world',
-    config: true,
-    type: String,
-    default: '',
-    requiresReload: true
+    config: false,
+    type: Array,
+    default: []
   });
 
-  game.settings.register('runarcana-sync', 'appId', {
-    name: 'Firebase App ID',
-    hint: '(Opcional) O ID do aplicativo (appId). Geralmente no formato 1:xxxxxxxxxx:web:xxxxxxxxxx.',
-    scope: 'world',
-    config: true,
-    type: String,
-    default: '',
-    requiresReload: true
+  game.settings.registerMenu('runarcana-sync', 'compendiumSyncMenu', {
+    name: 'Sincronizar Compêndio de Itens',
+    label: 'Abrir Sincronização',
+    hint: 'Escolhe quais compêndios de itens do mundo sincronizar com o backend, pra alimentar o seletor de equipamento do site.',
+    icon: 'fas fa-box-open',
+    type: CompendiumSyncMenuApp,
+    restricted: true
   });
 
-  // Campo Opcional / Legado (Caso o usuário prefira colar o JSON inteiro de uma vez)
-  game.settings.register('runarcana-sync', 'firebaseConfigJSON', {
-    name: 'Firebase Config (JSON Avançado)',
-    hint: '(Opcional) Cole o objeto JSON completo do Firebase aqui. Se preenchido, irá sobrepor os campos individuais acima.',
+  game.settings.register('runarcana-sync', 'backendUrl', {
+    name: 'URL do Backend Runarcana',
+    hint: 'URL base do runarcana-api. Só altere se estiver hospedando o backend por conta própria.',
     scope: 'world',
     config: true,
     type: String,
-    default: '',
+    default: 'https://api.runarcana.org',
     requiresReload: true
   });
 });
 
-Hooks.once('ready', () => {
-  const advancedField = getStringSetting('firebaseConfigJSON');
-  let config = {};
-  let missingFields = [];
+Hooks.once('ready', async () => {
+  // Ponto de entrada estável pra abrir a sincronização de compêndio via
+  // macro, caso o botão do menu de configurações não apareça na sua versão
+  // do Foundry: game.modules.get('runarcana-sync').api.openCompendiumSync()
+  const thisModule = game.modules.get('runarcana-sync');
+  if (thisModule) {
+    thisModule.api = { openCompendiumSync: openCompendiumSyncDialog };
+  }
 
-  try {
-    if (advancedField) {
-      const advancedResult = extractConfigFromAdvancedField(advancedField);
-      config = advancedResult.config;
-      missingFields = advancedResult.missingFields;
+  const mesaKey = getStringSetting('mesaKey');
+  const backendUrl = getStringSetting('backendUrl');
 
-      if (Object.keys(config).length === 0 && missingFields.length > 0) {
-        console.warn(
-          `Runarcana Sync | JSON Avançado incompleto ou inválido. Campos ausentes: ${missingFields.join(', ')}. Tentando usar campos individuais.`
-        );
-      }
-    }
+  if (!mesaKey) {
+    console.warn('Runarcana Sync | Chave da mesa não configurada nas configurações do módulo.');
+    return;
+  }
+  if (!backendUrl) {
+    console.warn('Runarcana Sync | URL do backend não configurada nas configurações do módulo.');
+    return;
+  }
 
-    if (Object.keys(config).length === 0) {
-      const fallback = getFirebaseConfigFromSimpleFields();
-      config = fallback.config;
-      missingFields = fallback.missingFields;
-    }
+  apiClient = new RunarcanaApiClient({
+    mesaKey,
+    baseUrl: backendUrl,
+    syncKey: getStringSetting('compendiumSyncKey'),
+  });
+  syncManager = new SyncManager(apiClient);
 
-    if (Object.keys(config).length > 0) {
-      firebaseClient = new FirebaseClient(config);
-      syncManager = new SyncManager(firebaseClient);
+  await cleanupDuplicateDraftLinks();
+  game.actors.forEach(actor => syncManager.startListening(actor));
+  console.log('Runarcana Sync | Backend configurado e ouvindo atores vinculados.');
 
-      // Start listening for already linked actors
-      game.actors.forEach(actor => syncManager.startListening(actor));
-      console.log('Runarcana Sync | Firebase configurado e rodando.');
-    } else {
-      console.warn(
-        `Runarcana Sync | Firebase não configurado. Campos ausentes: ${missingFields.join(', ') || 'desconhecidos'}.`
-      );
-    }
-  } catch (e) {
-    console.error('Runarcana Sync | Erro ao iniciar o Firebase:', e);
-    ui.notifications.error('Runarcana Sync: Configuração do Firebase inválida.');
+  if (thisModule) {
+    thisModule.api.apiClient = apiClient;
+    thisModule.api.syncManager = syncManager;
   }
 });
 
 Hooks.on('updateActor', (actor, changes, options, userId) => {
   if (userId !== game.user.id || !syncManager) return;
   syncManager.handleActorUpdate(actor, changes);
+});
+
+// Duplicar um Ator no Foundry copia os flags junto — inclusive
+// runarcana-sync.draftId. Sem essa checagem, o Ator duplicado herda o
+// vínculo do original e os dois passam a escrever na mesma ficha (mesmo
+// sem nunca ter passado pelo seletor de "Vincular").
+Hooks.on('createActor', (actor, options, userId) => {
+  if (userId !== game.user.id) return;
+  const draftId = actor.getFlag('runarcana-sync', 'draftId');
+  if (!draftId) return;
+
+  const linkedElsewhere = getDraftIdsLinkedToOtherActors(game.actors, actor.id);
+  if (!linkedElsewhere.has(draftId)) return;
+
+  actor.unsetFlag('runarcana-sync', 'draftId');
+  ui.notifications.warn(
+    `Runarcana Sync: ${actor.name} veio com um vínculo herdado (provavelmente de uma duplicação) de uma ficha já vinculada a outro Ator — desvinculado automaticamente.`,
+  );
+});
+
+// Sem isso, apagar o Ator deixava a stream SSE e o lastKnownDraft dele
+// vazando pra sempre (nada chamava stopListening).
+Hooks.on('deleteActor', (actor, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  syncManager.stopListening(actor);
 });
 
 Hooks.on('createItem', (item, options, userId) => {
@@ -212,6 +250,32 @@ Hooks.on('deleteItem', (item, options, userId) => {
   syncManager.handleItemUpdate(item.parent);
 });
 
+function actorOfEffect(effect) {
+  const parent = effect?.parent;
+  if (!parent) return null;
+  if (parent.documentName === 'Actor') return parent;
+  if (parent.documentName === 'Item' && parent.parent?.documentName === 'Actor') return parent.parent;
+  return null;
+}
+
+Hooks.on('createActiveEffect', (effect, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  const actor = actorOfEffect(effect);
+  if (actor) syncManager.handleActorUpdate(actor, {});
+});
+
+Hooks.on('updateActiveEffect', (effect, changes, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  const actor = actorOfEffect(effect);
+  if (actor) syncManager.handleActorUpdate(actor, changes);
+});
+
+Hooks.on('deleteActiveEffect', (effect, options, userId) => {
+  if (userId !== game.user.id || !syncManager) return;
+  const actor = actorOfEffect(effect);
+  if (actor) syncManager.handleActorUpdate(actor, {});
+});
+
 // Compatibilidade Ampla: Injetando botão tanto em ApplicationV1 (Legado) quanto ApplicationV2 (Novo v13+)
 
 // Hook para janelas baseadas na API V1 do Foundry (Fichas antigas e alguns módulos)
@@ -225,16 +289,7 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
     class: 'runarcana-sync-btn',
     icon: 'fas fa-sync',
     label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
-    onclick: () => {
-      if (!firebaseClient) {
-        return ui.notifications.warn('Configure o Firebase nas configurações do módulo primeiro.');
-      }
-      if (!firebaseClient.auth.currentUser) {
-        new RunarcanaLoginDialog(firebaseClient).render(true);
-      } else {
-        new DraftSelectorDialog(firebaseClient, actor, syncManager).render(true);
-      }
-    }
+    onclick: () => openDraftSelector(actor)
   });
 });
 
@@ -250,15 +305,6 @@ Hooks.on('getHeaderControlsActorSheetV2', (app, controls) => {
     icon: 'fas fa-sync',
     label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
     class: 'runarcana-sync-btn',
-    onClick: () => {
-      if (!firebaseClient) {
-        return ui.notifications.warn('Configure o Firebase nas configurações do módulo primeiro.');
-      }
-      if (!firebaseClient.auth.currentUser) {
-        new RunarcanaLoginDialog(firebaseClient).render(true);
-      } else {
-        new DraftSelectorDialog(firebaseClient, actor, syncManager).render(true);
-      }
-    }
+    onClick: () => openDraftSelector(actor)
   });
 });

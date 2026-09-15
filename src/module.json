@@ -1,6 +1,6 @@
 {
   "id": "runarcana-sync",
-  "title": "Runarcana Firebase Sync",
+  "title": "Runarcana Sync",
   "description": "Bidirectional sync between Runarcana Web App and Foundry VTT",
   "version": "1.0.0",
   "compatibility": {
