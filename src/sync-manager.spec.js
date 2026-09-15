@@ -39,7 +39,7 @@ function makeActor() {
         wis: { value: 10, proficient: 0 },
         cha: { value: 10, proficient: 0 },
       },
-      attributes: { hp: { max: 12, value: 12, temp: 0 } },
+      attributes: { hp: { max: 12, value: 12, temp: 0 }, movement: { walk: 30, units: 'ft' } },
       skills: {},
     },
     update: vi.fn(async () => undefined),
@@ -74,6 +74,22 @@ describe('SyncManager._applyRemoteDraft — hp.max é Foundry -> site só (não 
     );
     const updateCall = actor.update.mock.calls[0][0];
     expect(updateCall).not.toHaveProperty('system.attributes.hp.max');
+  });
+});
+
+describe('SyncManager._applyRemoteDraft — deslocamento é Foundry -> site só (FDD-47)', () => {
+  it('não escreve system.attributes.movement.walk de volta no Ator mesmo com um valor diferente no draft remoto', async () => {
+    const actor = makeActor();
+    const manager = new SyncManager({});
+
+    // identity.movementSpeed pode vir de uma edição manual antiga do builder
+    // (personagem sem Ator vinculado) — não deve sobrescrever o walk que o
+    // dnd5e já calculou (raça + efeito ativo + item), mesma regra do hp.max.
+    await manager._applyRemoteDraft(actor, { identity: { movementSpeed: 25 } });
+
+    expect(actor.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ 'system.attributes.movement.walk': expect.anything() }),
+    );
   });
 });
 
