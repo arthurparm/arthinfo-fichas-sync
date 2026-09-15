@@ -80,7 +80,11 @@ function buildEvaluatedRoll(roll) {
 
 export async function postSiteRollToChat(actor, roll) {
   if (!actor || !roll?.id) return;
-  if (!game.user?.isGM) return;
+  // game.user?.isGM sozinho deixa CADA GM conectado postar a própria
+  // mensagem — com dois Mestres ativos na mesma sessão (ex: "Lucas" e
+  // "Gamemaster"), a rolagem aparecia duplicada no chat. activeGM elege um
+  // único GM de forma consistente entre todos os clientes conectados.
+  if (game.user?.id !== game.users?.activeGM?.id) return;
   if (alreadyPosted(roll.id)) return;
 
   const flavor = flavorFor(roll);
