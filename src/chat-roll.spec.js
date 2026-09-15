@@ -27,7 +27,8 @@ describe('flavorFor / formulaFor / facesFrom', () => {
 describe('postSiteRollToChat', () => {
   beforeEach(() => {
     global.game = {
-      user: { isGM: true },
+      user: { id: 'gm-1', isGM: true },
+      users: { activeGM: { id: 'gm-1' } },
       messages: { contents: [] },
     };
     global.ChatMessage = {
@@ -38,8 +39,8 @@ describe('postSiteRollToChat', () => {
     global.Roll = undefined;
   });
 
-  it('não publica se o usuário não é GM', async () => {
-    game.user.isGM = false;
+  it('não publica se este cliente não é o GM ativo (evita duplicar com 2 GMs conectados)', async () => {
+    game.users.activeGM = { id: 'gm-2' };
     await postSiteRollToChat({ name: 'Karon' }, { id: 'roll-1', kind: 'damage', total: 7 });
     expect(ChatMessage.create).not.toHaveBeenCalled();
   });

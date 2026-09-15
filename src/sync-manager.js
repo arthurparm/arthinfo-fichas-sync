@@ -12,6 +12,7 @@ import {
 } from './data-mapper.js';
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 import { postSiteRollToChat } from './chat-roll.js';
+import { consumeSiteHitDieRoll } from './consume-hit-die.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
 function debounce(func, wait) {
@@ -204,6 +205,7 @@ export class SyncManager {
         async (message) => {
           if (message.roll) {
             await postSiteRollToChat(actor, message.roll);
+            await consumeSiteHitDieRoll(actor, message.roll);
             return;
           }
           if (message.sourceClientId === this.apiClient.clientId) {
