@@ -104,6 +104,8 @@ export const TRAIT_LIST_PATHS = {
   damageVulnerabilities: 'system.traits.dv',
   armorProficiencies: 'system.traits.armorProf',
   weaponProficiencies: 'system.traits.weaponProf',
+  toolProficiencies: 'system.traits.toolProf',
+  conditionImmunities: 'system.traits.ci',
   languages: 'system.traits.languages'
 };
 
@@ -148,6 +150,8 @@ export function readActorTraits(actor) {
     damageVulnerabilities: readTraitValues(traits.dv),
     armorProficiencies: readTraitValues(traits.armorProf),
     weaponProficiencies: readTraitValues(traits.weaponProf),
+    toolProficiencies: readTraitValues(traits.toolProf),
+    conditionImmunities: readTraitValues(traits.ci),
     languages: readTraitValues(traits.languages)
   };
 }

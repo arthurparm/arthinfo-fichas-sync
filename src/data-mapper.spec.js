@@ -103,6 +103,8 @@ describe('readActorTraits', () => {
           dv: { value: new Set([]) },
           armorProf: { value: new Set(['lgt']) },
           weaponProf: { value: new Set(['sim']) },
+          toolProf: { value: new Set(['thief']) },
+          ci: { value: new Set(['charmed']) },
           languages: { value: new Set(['common']) },
         },
         attributes: { senses: {} },
@@ -115,8 +117,29 @@ describe('readActorTraits', () => {
       damageVulnerabilities: [],
       armorProficiencies: ['lgt'],
       weaponProficiencies: ['sim'],
+      toolProficiencies: ['thief'],
+      conditionImmunities: ['charmed'],
       languages: ['common'],
     });
+  });
+
+  it('proficiencia de ferramenta e imunidade a condicao ficam vazias sem o recurso no Ator (FDD-52)', () => {
+    const actor = {
+      system: {
+        traits: {
+          dr: { value: new Set() },
+          di: { value: new Set() },
+          dv: { value: new Set() },
+          armorProf: { value: new Set() },
+          weaponProf: { value: new Set() },
+          languages: { value: new Set() },
+        },
+        attributes: { senses: {} },
+      },
+    };
+    const traits = readActorTraits(actor);
+    expect(traits.toolProficiencies).toEqual([]);
+    expect(traits.conditionImmunities).toEqual([]);
   });
 });
 
