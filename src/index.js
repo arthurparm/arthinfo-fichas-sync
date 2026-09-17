@@ -2,6 +2,13 @@
 import { RunarcanaApiClient } from './api-client.js';
 import { DraftSelectorDialog, getDraftIdsLinkedToOtherActors } from './draft-selector.js';
 import { CompendiumSyncDialog } from './compendium-sync-dialog.js';
+import {
+  actorsSharingDraftId,
+  inheritedDraftId,
+  keepOldestActor,
+  shouldStripInheritedDraftId,
+  stripInheritedDraftFlagSource,
+} from './draft-link.js';
 import { SyncManager } from './sync-manager.js';
 
 let apiClient = null;
@@ -50,25 +57,17 @@ async function unlinkActor(actor, message) {
 async function cleanupDuplicateDraftLinks() {
   if (!game.user.isGM) return;
 
-  const byDraft = new Map();
-  for (const actor of game.actors) {
-    const draftId = actor.getFlag('runarcana-sync', 'draftId');
-    if (!draftId) continue;
-    if (!byDraft.has(draftId)) byDraft.set(draftId, []);
-    byDraft.get(draftId).push(actor);
-  }
-
-  for (const actors of byDraft.values()) {
-    if (actors.length <= 1) continue;
-    const [keep, ...duplicates] = [...actors].sort(
-      (a, b) => (a._stats?.createdTime ?? 0) - (b._stats?.createdTime ?? 0),
-    );
+  for (const actors of actorsSharingDraftId(game.actors)) {
+    const [keep, ...duplicates] = keepOldestActor(actors);
     for (const duplicate of duplicates) {
       await unlinkActor(
         duplicate,
         `Runarcana Sync: ${duplicate.name} estava vinculado à mesma ficha que ${keep.name} — desvinculado automaticamente (limpeza de duplicata).`,
       );
     }
+    ui.notifications.warn(
+      `Runarcana Sync: ${duplicates.length + 1} Atores compartilhavam a mesma ficha; só ${keep.name} (o mais antigo) permanece vinculado.`,
+    );
   }
 }
 
@@ -211,10 +210,22 @@ Hooks.on('updateActor', (actor, changes, options, userId) => {
 });
 
 // Duplicar um Ator no Foundry copia os flags junto — inclusive
-// runarcana-sync.draftId. Sem essa checagem, o Ator duplicado herda o
-// vínculo do original e os dois passam a escrever na mesma ficha (mesmo
-// sem nunca ter passado pelo seletor de "Vincular").
-Hooks.on('createActor', (actor, options, userId) => {
+// runarcana-sync.draftId. O seletor de vínculo já recusa draft ligado a
+// outro Ator; Duplicate nativo não passa por ele. Tirar o flag no
+// preCreateActor (antes do documento existir) evita que createItem/
+// updateActor da cópia façam PUT no mesmo draftId (FDD-25).
+Hooks.on('preCreateActor', (document, data, options, userId) => {
+  if (userId !== game.user.id) return;
+  const draftId = inheritedDraftId(document, data);
+  if (!shouldStripInheritedDraftId(game.actors, draftId, document.id)) return;
+  try {
+    document.updateSource(stripInheritedDraftFlagSource());
+  } catch (error) {
+    console.warn('Runarcana Sync | Não foi possível tirar o draftId herdado antes da criação:', error);
+  }
+});
+
+Hooks.on('createActor', async (actor, options, userId) => {
   if (userId !== game.user.id) return;
   const draftId = actor.getFlag('runarcana-sync', 'draftId');
   if (!draftId) return;
@@ -222,7 +233,8 @@ Hooks.on('createActor', (actor, options, userId) => {
   const linkedElsewhere = getDraftIdsLinkedToOtherActors(game.actors, actor.id);
   if (!linkedElsewhere.has(draftId)) return;
 
-  actor.unsetFlag('runarcana-sync', 'draftId');
+  await actor.unsetFlag('runarcana-sync', 'draftId');
+  syncManager?.stopListening(actor);
   ui.notifications.warn(
     `Runarcana Sync: ${actor.name} veio com um vínculo herdado (provavelmente de uma duplicação) de uma ficha já vinculada a outro Ator — desvinculado automaticamente.`,
   );

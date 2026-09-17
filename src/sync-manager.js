@@ -13,6 +13,7 @@ import {
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 import { postSiteRollToChat } from './chat-roll.js';
 import { consumeSiteHitDieRoll } from './consume-hit-die.js';
+import { getDraftIdsLinkedToOtherActors } from './draft-selector.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
 function debounce(func, wait) {
@@ -75,6 +76,11 @@ function resolveActorPortrait(img) {
   if (!url) return '';
   if (String(url).includes('mystery-man') || String(url).includes('icons/svg/item-bag')) return '';
   return url;
+}
+
+function isDraftClaimedByAnotherActor(actor, draftId) {
+  if (typeof game === 'undefined' || !game.actors) return false;
+  return getDraftIdsLinkedToOtherActors(game.actors, actor.id).has(draftId);
 }
 
 function statusList(effect) {
@@ -177,6 +183,12 @@ export class SyncManager {
   async startListening(actor) {
     const draftId = actor.getFlag('runarcana-sync', 'draftId');
     if (!draftId || this.streams.has(actor.id)) return;
+    if (isDraftClaimedByAnotherActor(actor, draftId)) {
+      console.warn(
+        `Runarcana Sync | ${actor.name} não inicia sync: a ficha ${draftId} já está vinculada a outro Ator.`,
+      );
+      return;
+    }
     // Marca a vaga antes de qualquer await, pra uma segunda chamada concorrente
     // (ex: duplo clique) não abrir dois streams pro mesmo ator. Removida no
     // catch caso a inicialização falhe (ex: chave inválida), pra uma
@@ -411,6 +423,7 @@ export class SyncManager {
 
     const draftId = actor.getFlag('runarcana-sync', 'draftId');
     if (!draftId) return;
+    if (isDraftClaimedByAnotherActor(actor, draftId)) return;
 
     this.debouncedActorUpdate(actor, draftId);
   }
@@ -554,6 +567,7 @@ export class SyncManager {
     if (this.activeSyncs.has(actor.id)) return;
     const draftId = actor.getFlag('runarcana-sync', 'draftId');
     if (!draftId) return;
+    if (isDraftClaimedByAnotherActor(actor, draftId)) return;
 
     this.debouncedItemUpdate(actor, draftId);
   }
