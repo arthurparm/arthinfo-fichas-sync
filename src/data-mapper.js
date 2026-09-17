@@ -104,6 +104,7 @@ export const TRAIT_LIST_PATHS = {
   damageVulnerabilities: 'system.traits.dv',
   armorProficiencies: 'system.traits.armorProf',
   weaponProficiencies: 'system.traits.weaponProf',
+  // toolProficiencies também lê `system.tools.<chave>` — ver readActorToolProficiencies.
   toolProficiencies: 'system.traits.toolProf',
   conditionImmunities: 'system.traits.ci',
   languages: 'system.traits.languages'
@@ -124,6 +125,34 @@ export function readTraitValues(trait) {
     ? trait.custom.split(/[;,\n]/).map((entry) => entry.trim()).filter(Boolean)
     : [];
   return [...new Set([...fromValue, ...custom])];
+}
+
+// `system.traits.toolProf` (categoria genérica) quase nunca é preenchido no
+// dnd5e moderno — proficiência de ferramenta de verdade mora em
+// `system.tools.<chave>` (um objeto por ferramenta, como `system.skills`),
+// que é como o Ator de teste real desta sessão de QA guarda "Cartographer's
+// Tools" (ver checkup FDD-52 ao vivo). Chave de ferramenta é um espaço aberto
+// (qualquer ferramenta de artesão/instrumento pode existir), não um enum
+// fechado como armorProf/weaponProf — por isso resolve o nome aqui (Foundry
+// já sabe traduzir a chave) em vez de mandar a chave crua pro site montar
+// um mapa estático que nunca cobriria tudo.
+function resolveToolLabel(key) {
+  try {
+    const label = globalThis.dnd5e?.documents?.Trait?.keyLabel?.(key, { trait: 'tool' });
+    return typeof label === 'string' && label ? label : key;
+  } catch {
+    return key;
+  }
+}
+
+function readActorToolProficiencies(actor) {
+  const fromTraits = readTraitValues(actor.system?.traits?.toolProf);
+  const toolEntries = actor.system?.tools ?? {};
+  const fromTools = Object.entries(toolEntries)
+    .filter(([, entry]) => (entry?.value ?? 0) > 0)
+    .map(([key]) => key);
+  const keys = [...new Set([...fromTraits, ...fromTools])];
+  return keys.map(resolveToolLabel);
 }
 
 export function readActorSenses(actor) {
@@ -150,7 +179,7 @@ export function readActorTraits(actor) {
     damageVulnerabilities: readTraitValues(traits.dv),
     armorProficiencies: readTraitValues(traits.armorProf),
     weaponProficiencies: readTraitValues(traits.weaponProf),
-    toolProficiencies: readTraitValues(traits.toolProf),
+    toolProficiencies: readActorToolProficiencies(actor),
     conditionImmunities: readTraitValues(traits.ci),
     languages: readTraitValues(traits.languages)
   };

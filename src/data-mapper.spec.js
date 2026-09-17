@@ -123,6 +123,31 @@ describe('readActorTraits', () => {
     });
   });
 
+  it('le proficiencia de ferramenta de system.tools (dnd5e moderno), nao so de traits.toolProf (FDD-52)', () => {
+    const actor = {
+      system: {
+        traits: {
+          dr: { value: new Set() },
+          di: { value: new Set() },
+          dv: { value: new Set() },
+          armorProf: { value: new Set() },
+          weaponProf: { value: new Set() },
+          languages: { value: new Set() },
+        },
+        tools: {
+          cartographer: { value: 2 },
+          thief: { value: 1 },
+          herb: { value: 0 },
+        },
+        attributes: { senses: {} },
+      },
+    };
+    // Sem `dnd5e.documents.Trait.keyLabel` no ambiente de teste (só existe
+    // dentro do Foundry), cai pra chave crua — o nome resolvido é coberto
+    // ao vivo (ver checkup FDD-52), não dá pra simular a API do sistema aqui.
+    expect(readActorTraits(actor).toolProficiencies.sort()).toEqual(['cartographer', 'thief']);
+  });
+
   it('proficiencia de ferramenta e imunidade a condicao ficam vazias sem o recurso no Ator (FDD-52)', () => {
     const actor = {
       system: {
