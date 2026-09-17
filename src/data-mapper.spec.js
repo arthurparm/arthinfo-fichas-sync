@@ -117,7 +117,7 @@ describe('readActorTraits', () => {
       damageVulnerabilities: [],
       armorProficiencies: ['lgt'],
       weaponProficiencies: ['sim'],
-      toolProficiencies: ['thief'],
+      toolProficiencies: [{ label: 'thief' }],
       conditionImmunities: ['charmed'],
       languages: ['common'],
     });
@@ -135,7 +135,7 @@ describe('readActorTraits', () => {
           languages: { value: new Set() },
         },
         tools: {
-          cartographer: { value: 2 },
+          cartographer: { value: 2, total: 9 },
           thief: { value: 1 },
           herb: { value: 0 },
         },
@@ -145,7 +145,51 @@ describe('readActorTraits', () => {
     // Sem `dnd5e.documents.Trait.keyLabel` no ambiente de teste (só existe
     // dentro do Foundry), cai pra chave crua — o nome resolvido é coberto
     // ao vivo (ver checkup FDD-52), não dá pra simular a API do sistema aqui.
-    expect(readActorTraits(actor).toolProficiencies.sort()).toEqual(['cartographer', 'thief']);
+    const toolProficiencies = readActorTraits(actor).toolProficiencies;
+    expect(toolProficiencies.find((t) => t.label === 'cartographer')).toEqual({
+      label: 'cartographer',
+      modifier: 9,
+    });
+    expect(toolProficiencies.find((t) => t.label === 'thief')).toEqual({ label: 'thief' });
+    expect(toolProficiencies).toHaveLength(2);
+  });
+
+  it('ferramenta sem `.total` calculado (ex. dado mockado) fica sem modifier, so label (FDD-61)', () => {
+    const actor = {
+      system: {
+        traits: {
+          dr: { value: new Set() },
+          di: { value: new Set() },
+          dv: { value: new Set() },
+          armorProf: { value: new Set() },
+          weaponProf: { value: new Set() },
+          languages: { value: new Set() },
+        },
+        tools: { carpenter: { value: 1 } },
+        attributes: { senses: {} },
+      },
+    };
+    expect(readActorTraits(actor).toolProficiencies).toEqual([{ label: 'carpenter' }]);
+  });
+
+  it('categoria de traits.toolProf nao duplica ferramenta ja presente em system.tools (FDD-61)', () => {
+    const actor = {
+      system: {
+        traits: {
+          dr: { value: new Set() },
+          di: { value: new Set() },
+          dv: { value: new Set() },
+          armorProf: { value: new Set() },
+          weaponProf: { value: new Set() },
+          toolProf: { value: new Set(['cartographer', 'art']) },
+          languages: { value: new Set() },
+        },
+        tools: { cartographer: { value: 2, total: 9 } },
+        attributes: { senses: {} },
+      },
+    };
+    const toolProficiencies = readActorTraits(actor).toolProficiencies;
+    expect(toolProficiencies).toEqual([{ label: 'cartographer', modifier: 9 }, { label: 'art' }]);
   });
 
   it('proficiencia de ferramenta e imunidade a condicao ficam vazias sem o recurso no Ator (FDD-52)', () => {
