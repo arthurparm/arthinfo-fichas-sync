@@ -45,6 +45,10 @@ const COMPENDIUM_SYNC_STYLES = `
   }
 `;
 
+export function hasCompendiumPublishAck(root) {
+  return !!root?.querySelector?.('input[name="ackPublish"]:checked');
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -207,6 +211,10 @@ export class CompendiumSyncDialog {
 
     html += `
         </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:0.9em;line-height:1.4;">
+          <input type="checkbox" name="ackPublish" style="margin-top:3px;" />
+          <span>Entendo que o conteúdo enviado pode aparecer no site da mesa e, se eu usar a chave de catálogo compartilhado, no Compêndio público. Jogadores da mesa só consomem a ficha; não republicam o pack.</span>
+        </label>
       </form>`;
 
     const apiClient = this.apiClient;
@@ -230,6 +238,13 @@ export class CompendiumSyncDialog {
 
             if (packIds.length === 0) {
               ui.notifications.warn('Runarcana Sync: selecione ao menos um compêndio.');
+              return;
+            }
+
+            if (!hasCompendiumPublishAck(dialog.element)) {
+              ui.notifications.warn(
+                'Runarcana Sync: confirme que o conteúdo pode aparecer no site antes de sincronizar.',
+              );
               return;
             }
 
