@@ -284,7 +284,7 @@ function ee(e) {
 		label: "Compêndios do mundo"
 	};
 }
-function y(e) {
+function te(e) {
 	let t = /* @__PURE__ */ new Map();
 	for (let n of e) {
 		let e = ee(n);
@@ -299,13 +299,13 @@ function y(e) {
 		packs: e.packs.slice().sort((e, t) => (e.metadata.label ?? "").localeCompare(t.metadata.label ?? "", "pt-BR"))
 	})).sort((e, t) => e.label.localeCompare(t.label, "pt-BR"));
 }
-function b(e) {
+function y(e) {
 	let t = e.querySelector("input[data-action=\"toggleGroup\"]");
 	if (!t) return;
 	let n = Array.from(e.querySelectorAll("input[data-action=\"toggleItem\"]")), r = n.filter((e) => e.checked).length;
 	t.checked = r > 0 && r === n.length, t.indeterminate = r > 0 && r < n.length;
 }
-function x(e, t) {
+function ne(e, t) {
 	let n = t.closest("[data-pack-group]");
 	if (!n) return;
 	let r = t.checked;
@@ -313,12 +313,12 @@ function x(e, t) {
 		e.disabled = !r, e.checked = r;
 	}), t.indeterminate = !1;
 }
-function te(e, t) {
+function re(e, t) {
 	let n = t.closest("[data-pack-group]");
-	n && b(n);
+	n && y(n);
 }
-var S, C, w, ne = e((() => {
-	_(), S = "compendiumSyncSelection", C = "\n  .rs-compendium-sync .rs-group-toggle {\n    position: relative;\n    width: 16px;\n    height: 16px;\n    flex: 0 0 auto;\n    border: 1px solid var(--color-border-light-tertiary, #7a7971);\n    border-radius: 3px;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n  }\n  .rs-compendium-sync .rs-group-toggle input[type=\"checkbox\"] {\n    position: absolute;\n    inset: 0;\n    margin: 0;\n    opacity: 0;\n    cursor: pointer;\n  }\n  .rs-compendium-sync .rs-group-toggle::after {\n    content: \"\";\n    font-weight: 900;\n    font-size: 12px;\n    line-height: 1;\n    color: #1b1a17;\n    pointer-events: none;\n  }\n  .rs-compendium-sync .rs-group-toggle:has(input:checked),\n  .rs-compendium-sync .rs-group-toggle:has(input:indeterminate) {\n    background: #c9a227;\n  }\n  .rs-compendium-sync .rs-group-toggle:has(input:checked)::after {\n    content: \"\\2713\";\n  }\n  .rs-compendium-sync .rs-group-toggle:has(input:indeterminate)::after {\n    content: \"\\2212\";\n  }\n", w = class {
+var b, x, S, C = e((() => {
+	_(), b = "compendiumSyncSelection", x = "\n  .rs-compendium-sync .rs-group-toggle {\n    position: relative;\n    width: 16px;\n    height: 16px;\n    flex: 0 0 auto;\n    border: 1px solid var(--color-border-light-tertiary, #7a7971);\n    border-radius: 3px;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n  }\n  .rs-compendium-sync .rs-group-toggle input[type=\"checkbox\"] {\n    position: absolute;\n    inset: 0;\n    margin: 0;\n    opacity: 0;\n    cursor: pointer;\n  }\n  .rs-compendium-sync .rs-group-toggle::after {\n    content: \"\";\n    font-weight: 900;\n    font-size: 12px;\n    line-height: 1;\n    color: #1b1a17;\n    pointer-events: none;\n  }\n  .rs-compendium-sync .rs-group-toggle:has(input:checked),\n  .rs-compendium-sync .rs-group-toggle:has(input:indeterminate) {\n    background: #c9a227;\n  }\n  .rs-compendium-sync .rs-group-toggle:has(input:checked)::after {\n    content: \"\\2713\";\n  }\n  .rs-compendium-sync .rs-group-toggle:has(input:indeterminate)::after {\n    content: \"\\2212\";\n  }\n", S = class {
 		constructor(e) {
 			this.apiClient = e;
 		}
@@ -331,12 +331,12 @@ var S, C, w, ne = e((() => {
 			});
 			let n = [];
 			try {
-				n = game.settings.get("runarcana-sync", S) ?? [];
+				n = game.settings.get("runarcana-sync", b) ?? [];
 			} catch {
 				n = [];
 			}
-			let r = new Set(n), i = y(t), a = `
-      <style>${C}</style>
+			let r = new Set(n), i = te(t), a = `
+      <style>${x}</style>
       <form class="rs-compendium-sync">
         <p>Escolha os compêndios de itens a sincronizar (ex: um compêndio próprio,
         curado com os itens liberados na sua mesa):</p>
@@ -368,8 +368,8 @@ var S, C, w, ne = e((() => {
 				window: { title: "Sincronizar Compêndio de Itens" },
 				content: a,
 				actions: {
-					toggleGroup: x,
-					toggleItem: te
+					toggleGroup: ne,
+					toggleItem: re
 				},
 				buttons: [{
 					action: "sync",
@@ -382,7 +382,7 @@ var S, C, w, ne = e((() => {
 							ui.notifications.warn("Runarcana Sync: selecione ao menos um compêndio.");
 							return;
 						}
-						await game.settings.set("runarcana-sync", S, i);
+						await game.settings.set("runarcana-sync", b, i);
 						try {
 							let e = await h(o, i, (e, t) => {
 								ui.notifications.info(`Runarcana Sync: sincronizando lote ${e} de ${t}...`);
@@ -402,15 +402,15 @@ var S, C, w, ne = e((() => {
 }));
 //#endregion
 //#region src/data-mapper.js
-function re(e) {
+function ie(e) {
 	return e ? Array.isArray(e) ? e.filter(Boolean).map(String) : e instanceof Set ? [...e].filter(Boolean).map(String) : typeof e == "object" ? Object.keys(e).filter((t) => e[t]) : [] : [];
 }
-function T(e) {
+function w(e) {
 	if (!e) return [];
-	let t = re(e.value ?? (Array.isArray(e) || e instanceof Set ? e : null)), n = typeof e.custom == "string" ? e.custom.split(/[;,\n]/).map((e) => e.trim()).filter(Boolean) : [];
+	let t = ie(e.value ?? (Array.isArray(e) || e instanceof Set ? e : null)), n = typeof e.custom == "string" ? e.custom.split(/[;,\n]/).map((e) => e.trim()).filter(Boolean) : [];
 	return [.../* @__PURE__ */ new Set([...t, ...n])];
 }
-function E(e) {
+function T(e) {
 	try {
 		let t = globalThis.dnd5e?.documents?.Trait?.keyLabel?.(e, { trait: "tool" });
 		return typeof t == "string" && t ? t : e;
@@ -418,11 +418,21 @@ function E(e) {
 		return e;
 	}
 }
-function D(e) {
-	let t = T(e.system?.traits?.toolProf), n = e.system?.tools ?? {}, r = Object.entries(n).filter(([, e]) => (e?.value ?? 0) > 0).map(([e]) => e);
-	return [.../* @__PURE__ */ new Set([...t, ...r])].map(E);
+function E(e) {
+	let t = e.system?.tools ?? {}, n = /* @__PURE__ */ new Set(), r = [];
+	for (let [e, i] of Object.entries(t)) {
+		if ((i?.value ?? 0) <= 0) continue;
+		n.add(e);
+		let t = typeof i?.total == "number" ? i.total : void 0;
+		r.push(t === void 0 ? { label: T(e) } : {
+			label: T(e),
+			modifier: t
+		});
+	}
+	for (let t of w(e.system?.traits?.toolProf)) n.has(t) || (n.add(t), r.push({ label: T(t) }));
+	return r;
 }
-function O(e) {
+function ae(e) {
 	let t = e.system?.attributes?.senses ?? {}, n = t.ranges ?? {}, r = {};
 	for (let e of L) {
 		let i = n[e] ?? t[e];
@@ -430,31 +440,31 @@ function O(e) {
 	}
 	return t.units && (r.units = t.units), typeof t.special == "string" && t.special.trim() && (r.special = t.special.trim()), r;
 }
-function ie(e) {
+function D(e) {
 	let t = e.system?.traits ?? {};
 	return {
-		senses: O(e),
-		damageResistances: T(t.dr),
-		damageImmunities: T(t.di),
-		damageVulnerabilities: T(t.dv),
-		armorProficiencies: T(t.armorProf),
-		weaponProficiencies: T(t.weaponProf),
-		toolProficiencies: D(e),
-		conditionImmunities: T(t.ci),
-		languages: T(t.languages)
+		senses: ae(e),
+		damageResistances: w(t.dr),
+		damageImmunities: w(t.di),
+		damageVulnerabilities: w(t.dv),
+		armorProficiencies: w(t.armorProf),
+		weaponProficiencies: w(t.weaponProf),
+		toolProficiencies: E(e),
+		conditionImmunities: w(t.ci),
+		languages: w(t.languages)
 	};
 }
-function k(e) {
+function O(e) {
 	return e ? Array.isArray(e) ? e : typeof e.length == "number" || typeof e[Symbol.iterator] == "function" ? [...e] : typeof e == "object" ? Object.values(e) : [] : [];
 }
-function A(e, t) {
-	let n = k(e.itemTypes?.[t]);
-	return n.length > 0 ? n : k(e.items?.contents ?? e.items).filter((e) => e?.type === t);
+function k(e, t) {
+	let n = O(e.itemTypes?.[t]);
+	return n.length > 0 ? n : O(e.items?.contents ?? e.items).filter((e) => e?.type === t);
 }
-function j(e) {
+function A(e) {
 	return e ? typeof e == "string" ? e : e.name || "" : "";
 }
-function M(e) {
+function j(e) {
 	let t = e?.system?.hd?.denomination ?? e?.system?.hitDice ?? e?.system?.hitDie;
 	if (typeof t == "number" && t > 0) return `d${t}`;
 	if (typeof t == "string" && t.trim()) {
@@ -463,7 +473,7 @@ function M(e) {
 	}
 	return "";
 }
-function ae(e) {
+function M(e) {
 	let t = e.system?.attributes?.hd;
 	if (!t) return {
 		value: 0,
@@ -476,24 +486,24 @@ function ae(e) {
 	};
 }
 function N(e) {
-	let t = A(e, "class"), n = k(e.classes), r = /* @__PURE__ */ new Set(), i = [];
+	let t = k(e, "class"), n = O(e.classes), r = /* @__PURE__ */ new Set(), i = [];
 	for (let e of [...t, ...n]) {
 		let t = e?.id || e?.name;
 		t && !r.has(t) && (r.add(t), i.push(e));
 	}
-	let a = A(e, "race")[0], o = A(e, "background")[0], s = A(e, "subclass")[0], c = ae(e), l = e.system?.traits?.size || "";
+	let a = k(e, "race")[0], o = k(e, "background")[0], s = k(e, "subclass")[0], c = M(e), l = e.system?.traits?.size || "";
 	return {
 		classes: i.map((e) => ({
 			name: e.name || "",
 			identifier: e.system?.identifier || e.identifier || "",
 			levels: Number(e.system?.levels) || 0,
-			hitDie: M(e)
+			hitDie: j(e)
 		})),
 		subclassName: s?.name || "",
-		raceName: a?.name || j(e.system?.details?.race),
-		backgroundName: o?.name || j(e.system?.details?.background),
+		raceName: a?.name || A(e.system?.details?.race),
+		backgroundName: o?.name || A(e.system?.details?.background),
 		size: l,
-		hitDie: i.map(M).find(Boolean) || "",
+		hitDie: i.map(j).find(Boolean) || "",
 		hitDiceValue: c.value,
 		hitDiceMax: c.max
 	};
@@ -1004,7 +1014,7 @@ var $, be = e((() => {
 				let e = R.find(({ foundry: e }) => e === n);
 				e && foundry.utils.setProperty(t, "spellcasting.ability", e.firebase);
 			}
-			foundry.utils.setProperty(t, "concept.portraitUrl", ge(e.img)), t.conditions = Z(e), t.effects = Q(e), t.traits = ie(e), t.foundryIdentity = N(e);
+			foundry.utils.setProperty(t, "concept.portraitUrl", ge(e.img)), t.conditions = Z(e), t.effects = Q(e), t.traits = D(e), t.foundryIdentity = N(e);
 			let r = oe(e);
 			t.identity = {
 				...t.identity ?? {},
@@ -1085,7 +1095,7 @@ var $, be = e((() => {
 		}
 	};
 })), xe = /* @__PURE__ */ t((() => {
-	i(), u(), ne(), be();
+	i(), u(), C(), be();
 	var e = null, t = null;
 	function n(e) {
 		let t = game.settings.get("runarcana-sync", e);
@@ -1107,7 +1117,7 @@ var $, be = e((() => {
 			baseUrl: i,
 			syncKey: e
 		});
-		new w(a).render();
+		new S(a).render();
 	}
 	async function o(e, n) {
 		t?.stopListening(e), await e.unsetFlag("runarcana-sync", "draftId"), ui.notifications.info(n ?? `${e.name}: desvinculado da ficha.`);

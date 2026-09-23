@@ -145,14 +145,32 @@ function resolveToolLabel(key) {
   }
 }
 
+// Cada ferramenta em `system.tools.<chave>` já vem com `.total` calculado
+// pelo dnd5e (atributo + proficiência + bônus de item/efeito ativo) — mesmo
+// padrão do resto do arquivo (ver AGENTS.md raiz, "Arquitetura que atravessa
+// os repos"): manda o valor pronto do Foundry (FDD-61) em vez do site
+// reimplementar atributo+proficiência e arriscar divergir de bônus que só o
+// Foundry conhece. A categoria genérica `traits.toolProf` não tem ferramenta
+// específica pra calcular bônus — fica só com label, sem `modifier`.
 function readActorToolProficiencies(actor) {
-  const fromTraits = readTraitValues(actor.system?.traits?.toolProf);
   const toolEntries = actor.system?.tools ?? {};
-  const fromTools = Object.entries(toolEntries)
-    .filter(([, entry]) => (entry?.value ?? 0) > 0)
-    .map(([key]) => key);
-  const keys = [...new Set([...fromTraits, ...fromTools])];
-  return keys.map(resolveToolLabel);
+  const seenKeys = new Set();
+  const result = [];
+
+  for (const [key, entry] of Object.entries(toolEntries)) {
+    if ((entry?.value ?? 0) <= 0) continue;
+    seenKeys.add(key);
+    const modifier = typeof entry?.total === 'number' ? entry.total : undefined;
+    result.push(modifier === undefined ? { label: resolveToolLabel(key) } : { label: resolveToolLabel(key), modifier });
+  }
+
+  for (const key of readTraitValues(actor.system?.traits?.toolProf)) {
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    result.push({ label: resolveToolLabel(key) });
+  }
+
+  return result;
 }
 
 export function readActorSenses(actor) {
