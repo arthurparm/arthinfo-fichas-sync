@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { groupPacksBySource, resolvePackGroup } from './compendium-sync-dialog.js';
+import { groupPacksBySource, hasCompendiumPublishAck, resolvePackGroup } from './compendium-sync-dialog.js';
 
 function makePack(label, packageType, packageName, extra = {}) {
   return { collection: `${packageName}.${label}`, metadata: { label, packageType, packageName, ...extra } };
@@ -71,5 +71,17 @@ describe('groupPacksBySource', () => {
 
   it('lida com lista vazia', () => {
     expect(groupPacksBySource([])).toEqual([]);
+  });
+});
+
+describe('hasCompendiumPublishAck (FDD-26)', () => {
+  it('só libera a sync com o checkbox marcado', () => {
+    const root = {
+      querySelector: (selector) =>
+        selector === 'input[name="ackPublish"]:checked' ? { checked: true } : null,
+    };
+    expect(hasCompendiumPublishAck(root)).toBe(true);
+    expect(hasCompendiumPublishAck({ querySelector: () => null })).toBe(false);
+    expect(hasCompendiumPublishAck(undefined)).toBe(false);
   });
 });
