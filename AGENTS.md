@@ -1,10 +1,11 @@
-# runarcana-sync
+# arthinfo-fichas-sync
 
 Módulo do Foundry VTT que vincula um Ator a uma ficha do **Arthinfo
 Fichas** e mantém os dois sincronizados em tempo real (atributos, HP,
 itens, condições, efeitos). JS puro, roda dentro do Foundry. Nome da
-pasta, `module.json` e flags (`runarcana-sync`) são legado (Runarcana) —
-não “corrigir” sem pedido. Ecossistema e regras de trabalho:
+pasta e `module.json` agora usam `arthinfo-fichas-sync`. O id antigo `runarcana-sync`
+ainda aparece de propósito em `src/module-id.js` e `src/legacy-migration.js`: é a
+migração de flags/configurações de mundos que já usavam o módulo antigo. Ecossistema e regras de trabalho:
 `../AGENTS.md` e `../.agents/` (direção de sync e `lastKnownDraft`).
 
 ## Comandos
@@ -35,10 +36,10 @@ não “corrigir” sem pedido. Ecossistema e regras de trabalho:
   como campo one-way, no lugar de deixar o site reimplementar a fórmula.
   Ver `../AGENTS.md` (Arquitetura que atravessa os repos).
 - `src/draft-selector.js` — diálogo de vincular um Ator a um draft
-  existente (`actor.setFlag('runarcana-sync', 'draftId', ...)` — esse flag
+  existente (`actor.setFlag(MODULE_ID, 'draftId', ...)` — esse flag
   no Ator é a fonte da verdade de "qual draft está vinculado", não o
   draft em si).
-- `src/api-client.js` — chamadas HTTP pro `runarcana-api`.
+- `src/api-client.js` — chamadas HTTP pro `arthinfo-fichas-api`.
 - `src/compendium-sync.js` / `compendium-sync-dialog.js` — sincronização
   de itens do compêndio (usa `COMPENDIUM_SYNC_KEY`, não token de usuário).
 - `src/index.js` — hooks do Foundry (`Hooks.on(...)`), ponto de entrada.

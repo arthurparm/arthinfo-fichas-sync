@@ -93,6 +93,54 @@ describe('SyncManager._applyRemoteDraft — deslocamento é Foundry -> site só 
   });
 });
 
+describe('SyncManager — nome do personagem sincroniza nos dois sentidos', () => {
+  it('site -> Foundry: renomeia o Ator pro concept.name da ficha', async () => {
+    const actor = makeActor();
+    actor.name = 'Personagem';
+    const manager = new SyncManager({});
+
+    await manager._applyRemoteDraft(actor, { concept: { name: 'Karon' } });
+
+    expect(actor.update).toHaveBeenCalledWith(expect.objectContaining({ name: 'Karon' }));
+  });
+
+  it('site -> Foundry: nome em branco na ficha nunca vira nome do Ator', async () => {
+    const actor = makeActor();
+    actor.name = 'Personagem';
+    const manager = new SyncManager({});
+
+    await manager._applyRemoteDraft(actor, { concept: { name: '   ' } });
+
+    const updates = actor.update.mock.calls.map((call) => call[0]);
+    expect(updates.some((update) => 'name' in update)).toBe(false);
+  });
+
+  it('site -> Foundry: não reescreve o nome quando já é igual', async () => {
+    const actor = makeActor();
+    actor.name = 'Karon';
+    const manager = new SyncManager({});
+
+    await manager._applyRemoteDraft(actor, { concept: { name: 'Karon' } });
+
+    const updates = actor.update.mock.calls.map((call) => call[0]);
+    expect(updates.some((update) => 'name' in update)).toBe(false);
+  });
+
+  it('Foundry -> site: o overlay do Ator grava o nome atual em concept.name', () => {
+    const actor = makeActor();
+    actor.name = 'Karon Renomeado';
+    actor.img = '';
+    actor.classes = {};
+    actor.items = [];
+    const manager = new SyncManager({});
+    const base = { concept: { name: 'Karon', portraitUrl: 'x' }, identity: {} };
+
+    manager._overlayActorOntoDraft(actor, base);
+
+    expect(base.concept.name).toBe('Karon Renomeado');
+  });
+});
+
 describe('SyncManager._executeActorUpdate — If-Match / 409 (FDD-35)', () => {
   function conflict(current) {
     return Object.assign(new Error('Ficha foi modificada por outra origem desde a última leitura.'), {
@@ -205,8 +253,101 @@ describe('SyncManager.startListening — evento roll', () => {
     expect(manager._applyRemoteDraft).toHaveBeenCalledTimes(1);
     expect(ChatMessage.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        flags: { 'runarcana-sync': { rollId: 'roll-1', kind: 'damage' } },
+        flags: { 'arthinfo-fichas-sync': { rollId: 'roll-1', kind: 'damage' } },
       }),
     );
+  });
+});
+
+describe('SyncManager.startListening — evento item-equip', () => {
+  it('não trata payload de item-equip como atualização de ficha, aplica no item do Ator', async () => {
+    global.game = { user: { id: 'gm-1' }, users: { activeGM: { id: 'gm-1' } } };
+
+    const weapon = {
+      id: 'weapon-1',
+      system: { equipped: false },
+      getFlag: vi.fn(() => undefined),
+      update: vi.fn(async () => ({})),
+    };
+    const actor = {
+      ...makeActor(),
+      name: 'Karon',
+      items: [weapon],
+      getFlag: () => 'draft-1',
+    };
+    let onMessage;
+    const initialDraft = { id: 'draft-1', derivedStats: { currentHp: 12 } };
+    const apiClient = {
+      clientId: 'foundry-client',
+      getDraft: vi.fn().mockResolvedValue(initialDraft),
+      openStream: vi.fn(async (_id, handler) => {
+        onMessage = handler;
+        return { close: vi.fn() };
+      }),
+    };
+    const manager = new SyncManager(apiClient);
+    manager._applyRemoteDraft = vi.fn();
+    manager._executeActorUpdate = vi.fn();
+    manager._executeItemUpdate = vi.fn();
+
+    await manager.startListening(actor);
+
+    await onMessage({
+      draftId: 'draft-1',
+      itemEquip: { itemId: 'weapon-1', equipped: true },
+      sourceClientId: 'site',
+    });
+
+    expect(weapon.update).toHaveBeenCalledWith({ 'system.equipped': true });
+    // _applyRemoteDraft já foi chamado 1x no startListening (aplica o draft
+    // inicial) — a mensagem item-equip não deve gerar uma 2ª chamada, ela
+    // não é uma atualização de ficha.
+    expect(manager._applyRemoteDraft).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SyncManager.startListening — evento item-cast', () => {
+  it('não trata payload de item-cast como atualização de ficha, aplica no item/Ator', async () => {
+    global.game = { user: { id: 'gm-1' }, users: { activeGM: { id: 'gm-1' } } };
+
+    const spell = {
+      id: 'spell-1',
+      name: 'Armadura de Mago',
+      system: { uses: { spent: 0, max: 1 } },
+      getFlag: vi.fn(() => undefined),
+      update: vi.fn(async () => ({})),
+    };
+    const actor = {
+      ...makeActor(),
+      name: 'Karon',
+      items: [spell],
+      system: { ...makeActor().system, spells: { spell1: { value: 2, max: 4 } } },
+      getFlag: () => 'draft-1',
+    };
+    let onMessage;
+    const initialDraft = { id: 'draft-1', derivedStats: { currentHp: 12 } };
+    const apiClient = {
+      clientId: 'foundry-client',
+      getDraft: vi.fn().mockResolvedValue(initialDraft),
+      openStream: vi.fn(async (_id, handler) => {
+        onMessage = handler;
+        return { close: vi.fn() };
+      }),
+    };
+    const manager = new SyncManager(apiClient);
+    manager._applyRemoteDraft = vi.fn();
+    manager._executeActorUpdate = vi.fn();
+    manager._executeItemUpdate = vi.fn();
+
+    await manager.startListening(actor);
+
+    await onMessage({
+      draftId: 'draft-1',
+      itemCast: { itemId: 'spell-1', using: 'slot', slotLevel: 1 },
+      sourceClientId: 'site',
+    });
+
+    expect(actor.update).toHaveBeenCalledWith({ 'system.spells.spell1.value': 1 });
+    expect(manager._applyRemoteDraft).toHaveBeenCalledTimes(1);
   });
 });

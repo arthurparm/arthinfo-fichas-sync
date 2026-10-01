@@ -65,6 +65,6 @@ export async function consumeSiteHitDieRoll(actor, roll) {
     if (Object.keys(actorUpdates).length > 0) await actor.update(actorUpdates);
     if (cls && classUpdate) await cls.update(classUpdate);
   } catch (error) {
-    console.error('Runarcana Sync | Falha ao descontar dado de vida no Ator:', error);
+    console.error('Arthinfo Fichas | Falha ao descontar dado de vida no Ator:', error);
   }
 }

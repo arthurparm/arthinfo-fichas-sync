@@ -12,6 +12,10 @@ describe('flavorFor / formulaFor / facesFrom', () => {
     expect(flavorFor({ kind: 'ability', label: 'Força' })).toBe('Atributo — Força');
   });
 
+  it('não duplica o nome quando kind e label são a mesma palavra', () => {
+    expect(flavorFor({ kind: 'initiative', label: 'Iniciativa' })).toBe('Iniciativa');
+  });
+
   it('monta a fórmula NdX + modificador', () => {
     expect(formulaFor({ diceCount: 2, dieSize: 8, modifier: 4 })).toBe('2d8 + 4');
     expect(formulaFor({ diceCount: 1, dieSize: 12, modifier: 0 })).toBe('1d12');
@@ -70,7 +74,7 @@ describe('postSiteRollToChat', () => {
     expect(ChatMessage.create).toHaveBeenCalledWith(
       expect.objectContaining({
         flavor: 'Dano — Chama Sagrada (dano)',
-        flags: { 'runarcana-sync': { rollId: 'roll-1', kind: 'damage' } },
+        flags: { 'arthinfo-fichas-sync': { rollId: 'roll-1', kind: 'damage' } },
         content: expect.stringContaining('5'),
       }),
     );
@@ -108,7 +112,7 @@ describe('postSiteRollToChat', () => {
     expect(ChatMessage.create).toHaveBeenCalledWith(
       expect.objectContaining({
         flavor: 'Atributo — Força',
-        flags: { 'runarcana-sync': { rollId: 'roll-ability', kind: 'ability' } },
+        flags: { 'arthinfo-fichas-sync': { rollId: 'roll-ability', kind: 'ability' } },
         content: expect.stringContaining('17'),
       }),
     );

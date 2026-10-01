@@ -5,7 +5,7 @@ export default defineConfig({
     outDir: 'dist',
     lib: {
       entry: 'src/index.js',
-      name: 'RunarcanaSync',
+      name: 'ArthinfoFichasSync',
       fileName: () => 'module.js',
       formats: ['es']
     }

@@ -5,6 +5,12 @@
  * A chave é o path do Foundry (dot-notation), e o valor é o path correspondente no Firebase.
  */
 export const ATTR_MAP = {
+  // --- Nome do personagem (bidirecional) ---
+  // Sem isso o Ator ficava "Personagem" no Foundry (e no chat) enquanto a
+  // ficha se chamava "Karon". Ao vincular, o nome do site vence (ver
+  // NON_BLANK_FOUNDRY_PATHS); depois, renomear em qualquer lado propaga.
+  'name': 'concept.name',
+
   // --- Atributos Básicos ---
   'system.abilities.str.value': 'attributes.scores.strength',
   'system.abilities.dex.value': 'attributes.scores.dexterity',
@@ -20,6 +26,12 @@ export const ATTR_MAP = {
 
   // --- Classe de Armadura (AC) ---
   'system.attributes.ac.value': 'derivedStats.ac',
+
+  // --- Iniciativa ---
+  // init.total já é o bônus final (DES + Alerta + item + efeito). O site
+  // só usava o modificador de Destreza e a rolagem saía errada na mesa.
+  // Só Foundry -> site, mesma classe de ac.value / movement.walk.
+  'system.attributes.init.total': 'derivedStats.initiative',
 
   // --- Moedas (Currency) ---
   'system.currency.cp': 'currency.cp',
@@ -89,7 +101,14 @@ export const ATTR_MAP = {
 export const ONE_WAY_FOUNDRY_TO_SITE = new Set([
   'system.attributes.hp.max',
   'system.attributes.movement.walk',
+  'system.attributes.init.total',
 ]);
+
+// Paths do ATTR_MAP cujo valor do site nunca pode ser vazio ao escrever no
+// Foundry: o Foundry rejeita Ator sem nome e a validação derrubaria o
+// `actor.update` inteiro (levando junto HP, slots etc. do mesmo lote). Site
+// com nome em branco só recebe o do Ator pelo overlay Foundry -> site.
+export const NON_BLANK_FOUNDRY_PATHS = new Set(['name']);
 
 // Sentidos do dnd5e 5.3+ vivem em system.attributes.senses.ranges.*; versões
 // antigas ainda têm darkvision/blindsight/etc. no próprio senses. Não cabem

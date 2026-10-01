@@ -6,7 +6,7 @@ import {
 } from './draft-selector.js';
 
 function makeActor(id, draftId) {
-  return { id, getFlag: (scope, key) => (scope === 'runarcana-sync' && key === 'draftId' ? draftId : undefined) };
+  return { id, getFlag: (scope, key) => (scope === 'arthinfo-fichas-sync' && key === 'draftId' ? draftId : undefined) };
 }
 
 describe('formatDraftOptionLabel', () => {
@@ -62,14 +62,14 @@ describe('buildDraftLoadErrorMessage', () => {
     const html = buildDraftLoadErrorMessage(err);
     expect(html).toContain('Chave da mesa inválida ou revogada');
     // Não manda conferir URL/servidor: nesse caso o problema não é esse.
-    expect(html).not.toContain('runarcana-api');
+    expect(html).not.toContain('arthinfo-fichas-api');
   });
 
   it('mantém o diagnóstico genérico para erro que não é de autenticação', () => {
     const err = Object.assign(new Error('Failed to fetch'), { status: undefined });
     const html = buildDraftLoadErrorMessage(err);
     expect(html).toContain('Failed to fetch');
-    expect(html).toContain('runarcana-api');
+    expect(html).toContain('arthinfo-fichas-api');
   });
 
   it('escapa a mensagem do erro no caminho genérico', () => {

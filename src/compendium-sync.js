@@ -1,6 +1,7 @@
+import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
 // foundry-module/src/compendium-sync.js
 // Lê compêndios de itens curados pelo mestre no Foundry e sincroniza pro
-// backend (runarcana-api), em lotes. Não depende de nenhum compêndio
+// backend (arthinfo-fichas-api), em lotes. Não depende de nenhum compêndio
 // "oficial" do módulo — funciona com qualquer compêndio do tipo Item que
 // já exista no mundo.
 
@@ -12,7 +13,7 @@ export function listItemCompendia() {
 
 /**
  * Procura, nos compêndios locais de Item, quais têm a flag
- * flags.runarcana-sync.catalogKey batendo com algum dos ids pedidos. Usa o
+ * flags.<id do módulo>.catalogKey (novo ou legado) batendo com algum dos ids pedidos. Usa o
  * índice (leve) em vez de carregar os documentos inteiros — só busca o
  * documento completo depois, sob demanda, pra quem realmente vai ser usado.
  *
@@ -20,7 +21,7 @@ export function listItemCompendia() {
  * do Foundry não conhece os "labels" do catálogo do site (só os ids, ex:
  * 'adaga'), então não dá pra casar por nome aqui como o site faz.
  *
- * O scope da flag precisa ser o id do módulo ("runarcana-sync") — o Foundry
+ * O scope da flag precisa ser o id do módulo ("arthinfo-fichas-sync") — o Foundry
  * rejeita getFlag/getIndex com um scope que não seja um pacote ativo.
  */
 export async function findItemsByCatalogKeys(catalogKeys) {
@@ -31,14 +32,16 @@ export async function findItemsByCatalogKeys(catalogKeys) {
   for (const pack of listItemCompendia()) {
     let index;
     try {
-      index = await pack.getIndex({ fields: ['flags.runarcana-sync.catalogKey'] });
+      index = await pack.getIndex({
+        fields: [`flags.${MODULE_ID}.catalogKey`, `flags.${LEGACY_MODULE_ID}.catalogKey`],
+      });
     } catch (error) {
-      console.warn(`Runarcana Sync | Falha ao ler índice do compêndio ${pack.collection}:`, error);
+      console.warn(`Arthinfo Fichas | Falha ao ler índice do compêndio ${pack.collection}:`, error);
       continue;
     }
 
     for (const entry of index) {
-      const key = entry.flags?.['runarcana-sync']?.catalogKey;
+      const key = entry.flags?.[MODULE_ID]?.catalogKey ?? entry.flags?.[LEGACY_MODULE_ID]?.catalogKey;
       if (key && wanted.has(key) && !found.has(key)) {
         found.set(key, { packId: pack.collection, foundryId: entry._id });
       }
@@ -88,7 +91,7 @@ export async function syncCompendiums(apiClient, packIds, onProgress) {
       name: doc.name,
       img: absoluteImg(doc.img),
       itemType: doc.type,
-      catalogKey: doc.getFlag('runarcana-sync', 'catalogKey') ?? null,
+      catalogKey: readFlag(doc, 'catalogKey') ?? null,
       system: doc.toObject().system,
     }));
 

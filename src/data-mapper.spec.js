@@ -17,6 +17,20 @@ describe('ATTR_MAP — deslocamento (FDD-47)', () => {
   });
 });
 
+describe('ATTR_MAP — nome do personagem', () => {
+  it('mapeia o nome do Ator pra concept.name, bidirecional (fora do ONE_WAY)', () => {
+    expect(ATTR_MAP['name']).toBe('concept.name');
+    expect(ONE_WAY_FOUNDRY_TO_SITE.has('name')).toBe(false);
+  });
+});
+
+describe('ATTR_MAP — iniciativa', () => {
+  it('mapeia system.attributes.init.total pra derivedStats.initiative, só Foundry -> site', () => {
+    expect(ATTR_MAP['system.attributes.init.total']).toBe('derivedStats.initiative');
+    expect(ONE_WAY_FOUNDRY_TO_SITE.has('system.attributes.init.total')).toBe(true);
+  });
+});
+
 describe('foundrySkillValueToProficiencyLevel', () => {
   it('converte 0 (nao-proficiente) para false', () => {
     expect(foundrySkillValueToProficiencyLevel(0)).toBe(false);

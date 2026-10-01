@@ -1,4 +1,4 @@
-# Sincronização de Itens com Múltiplas Ações (D&D 5e v3+ / Runarcana)
+# Sincronização de Itens com Múltiplas Ações (D&D 5e v3+ / Arthinfo Fichas)
 
 A versão mais recente do sistema dnd5e no Foundry VTT aboliu a estrutura plana de ações e danos em favor do sistema de **Activities** (Atividades). Agora, em vez de um item ter `system.damage` ou `system.actionType`, ele possui um dicionário `system.activities` que agrupa todos os possíveis usos de um item.
 
