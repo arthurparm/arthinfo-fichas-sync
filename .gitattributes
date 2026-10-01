@@ -1,1 +1,2 @@
 packs/** binary
+.githooks/* text eol=lf

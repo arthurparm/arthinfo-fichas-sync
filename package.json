@@ -1,12 +1,15 @@
 {
   "name": "foundry-module",
-  "version": "1.0.0",
+  "version": "0.0.61",
   "description": "",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepare": "node scripts/sync-version.mjs --install-hooks",
+    "version:check": "node scripts/sync-version.mjs --check",
+    "test:version": "node --test scripts/sync-version.node-test.mjs"
   },
   "keywords": [],
   "author": "",

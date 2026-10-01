@@ -1,0 +1,5 @@
+#!/bin/sh
+# Versão = nº de commits (odômetro). Roda a cada commit e inclui o resultado nele.
+# Desvio, p.ex. em `git commit --amend` (não aumenta a contagem): SKIP_VERSION_BUMP=1 git commit ...
+[ -n "$SKIP_VERSION_BUMP" ] && exit 0
+node scripts/sync-version.mjs --stage || exit 1
