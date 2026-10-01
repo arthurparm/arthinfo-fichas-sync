@@ -1,3 +1,4 @@
+import { MODULE_ID, readFlag } from './module-id.js';
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -20,13 +21,13 @@ export function formatDraftOptionLabel(draft) {
 }
 
 // Ids de draft já vinculados a outros Atores deste mundo (flag
-// runarcana-sync.draftId), pra não deixar dois Atores escrevendo na mesma
+// <id do módulo>.draftId), pra não deixar dois Atores escrevendo na mesma
 // ficha. Exclui o próprio Ator que está abrindo o seletor.
 export function getDraftIdsLinkedToOtherActors(actors, currentActorId) {
   const linked = new Set();
   for (const actor of actors ?? []) {
     if (actor.id === currentActorId) continue;
-    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    const draftId = readFlag(actor, 'draftId');
     if (draftId) linked.add(draftId);
   }
   return linked;
@@ -42,7 +43,7 @@ export function buildDraftLoadErrorMessage(err) {
   }
   return `<p>Erro ao carregar fichas: ${escapeHtml(err?.message || 'Erro desconhecido.')}</p>
     <p>Verifique se a chave da mesa e a URL do backend estão configuradas corretamente nas configurações do módulo e
-    se o servidor (runarcana-api) está no ar.</p>`;
+    se o servidor (arthinfo-fichas-api) está no ar.</p>`;
 }
 
 export class DraftSelectorDialog {
@@ -74,7 +75,7 @@ export class DraftSelectorDialog {
       html += `</select></div></form>`;
 
       return DialogV2.wait({
-        window: { title: "Vincular Ficha Runarcana" },
+        window: { title: "Vincular Ficha Arthinfo" },
         content: html,
         buttons: [{
           action: "link",
@@ -85,7 +86,7 @@ export class DraftSelectorDialog {
             const draftId = select.value;
             const selectedOption = select.selectedOptions?.[0];
             if (!draftId || selectedOption?.disabled) return;
-            await this.actor.setFlag('runarcana-sync', 'draftId', draftId);
+            await this.actor.setFlag(MODULE_ID, 'draftId', draftId);
             ui.notifications.info(`Actor vinculado à ficha ${draftId}`);
             if (this.syncManager) {
               this.syncManager.startListening(this.actor);

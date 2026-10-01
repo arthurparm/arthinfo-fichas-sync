@@ -1,3 +1,4 @@
+import { MODULE_ID, readFlag } from './module-id.js';
 // Rolagem feita na ficha (POST /api/drafts/:id/rolls) chega aqui via SSE
 // `event: roll`. O dado já foi sorteado no servidor — o Foundry só publica
 // o resultado no chat, sem re-rolar.
@@ -7,6 +8,8 @@ const KIND_LABEL = {
   save: 'Resistência',
   attack: 'Ataque',
   ability: 'Atributo',
+  tool: 'Ferramenta',
+  initiative: 'Iniciativa',
   'hit-die': 'Dado de vida',
   damage: 'Dano',
   heal: 'Cura',
@@ -15,7 +18,8 @@ const KIND_LABEL = {
 export function flavorFor(roll) {
   const kind = KIND_LABEL[roll?.kind] ?? 'Rolagem';
   const label = typeof roll?.label === 'string' ? roll.label.trim() : '';
-  return label ? `${kind} — ${label}` : kind;
+  if (!label || label === kind) return kind;
+  return `${kind} — ${label}`;
 }
 
 export function formulaFor(roll) {
@@ -40,7 +44,7 @@ export function facesFrom(roll) {
 
 function alreadyPosted(rollId) {
   const messages = game.messages?.contents ?? [];
-  return messages.some((message) => message.getFlag?.('runarcana-sync', 'rollId') === rollId);
+  return messages.some((message) => readFlag(message, 'rollId') === rollId);
 }
 
 function buildEvaluatedRoll(roll) {
@@ -88,7 +92,7 @@ export async function postSiteRollToChat(actor, roll) {
   if (alreadyPosted(roll.id)) return;
 
   const flavor = flavorFor(roll);
-  const flags = { 'runarcana-sync': { rollId: roll.id, kind: roll.kind } };
+  const flags = { [MODULE_ID]: { rollId: roll.id, kind: roll.kind } };
   const speaker = typeof ChatMessage.getSpeaker === 'function' ? ChatMessage.getSpeaker({ actor }) : { alias: actor.name };
 
   const content = `<div class="dice-roll"><div class="dice-result"><h4 class="dice-total">${roll.total}</h4><div class="dice-formula">${formulaFor(roll)}</div></div></div>`;
@@ -98,7 +102,7 @@ export async function postSiteRollToChat(actor, roll) {
     try {
       foundryRoll = buildEvaluatedRoll(roll);
     } catch (error) {
-      console.warn('Runarcana Sync | não deu pra montar o Roll do Foundry:', error);
+      console.warn('Arthinfo Fichas | não deu pra montar o Roll do Foundry:', error);
     }
 
     if (foundryRoll && typeof foundryRoll.toMessage === 'function') {
@@ -108,12 +112,12 @@ export async function postSiteRollToChat(actor, roll) {
       } catch (error) {
         // dnd5e D20Roll/toMessage recusa Die genérico em teste de atributo,
         // perícia, save e ataque — sem este fallback a rolagem some do chat.
-        console.warn('Runarcana Sync | toMessage falhou, publicando HTML no chat:', error);
+        console.warn('Arthinfo Fichas | toMessage falhou, publicando HTML no chat:', error);
       }
     }
 
     await ChatMessage.create({ speaker, flavor, flags, content });
   } catch (error) {
-    console.error('Runarcana Sync | Falha ao publicar rolagem no chat:', error);
+    console.error('Arthinfo Fichas | Falha ao publicar rolagem no chat:', error);
   }
 }

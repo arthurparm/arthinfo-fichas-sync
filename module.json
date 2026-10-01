@@ -1,7 +1,7 @@
 {
-  "id": "runarcana-sync",
-  "title": "Runarcana Sync",
-  "version": "0.0.1",
+  "id": "arthinfo-fichas-sync",
+  "title": "Arthinfo Fichas Sync",
+  "version": "0.0.62",
   "compatibility": {
     "minimum": "13",
     "verified": "14"
@@ -20,7 +20,7 @@
   "esmodules": [
     "dist/module.js"
   ],
-  "description": "Sincroniza fichas do Runarcana (via runarcana-api) com Atores do Foundry, incluindo sincronização de compêndios de itens curados pelo mestre.",
-  "manifest": "https://raw.githubusercontent.com/arthurparm/runarcana-sync/main/module.json",
-  "download": "https://github.com/arthurparm/runarcana-sync/releases/download/v0.0.1/module.zip"
+  "description": "Sincroniza fichas do Arthinfo Fichas (via arthinfo-fichas-api) com Atores do Foundry, incluindo sincronização de compêndios de itens curados pelo mestre.",
+  "manifest": "https://raw.githubusercontent.com/arthurparm/arthinfo-fichas-sync/main/module.json",
+  "download": "https://github.com/arthurparm/arthinfo-fichas-sync/releases/download/v0.0.62/module.zip"
 }

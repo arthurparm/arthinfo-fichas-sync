@@ -1,7 +1,7 @@
 {
-  "id": "runarcana-sync",
-  "title": "Runarcana Sync",
-  "description": "Bidirectional sync between Runarcana Web App and Foundry VTT",
+  "id": "arthinfo-fichas-sync",
+  "title": "Arthinfo Fichas Sync",
+  "description": "Sincroniza fichas do Arthinfo Fichas (via arthinfo-fichas-api) com Atores do Foundry, incluindo sincronização de compêndios de itens curados pelo mestre.",
   "version": "1.0.0",
   "compatibility": {
     "minimum": "11",
@@ -10,6 +10,6 @@
   "esmodules": [
     "module.js"
   ],
-  "manifest": "https://raw.githubusercontent.com/arthurparm/runarcana-sync/main/module.json",
-  "download": "https://github.com/arthurparm/runarcana-sync/releases/download/v1.0.0/module.zip"
+  "manifest": "https://raw.githubusercontent.com/arthurparm/arthinfo-fichas-sync/main/module.json",
+  "download": "https://github.com/arthurparm/arthinfo-fichas-sync/releases/download/v0.1.0/module.zip"
 }

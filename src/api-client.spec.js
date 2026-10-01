@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RunarcanaApiClient } from './api-client.js';
+import { ArthinfoApiClient } from './api-client.js';
 
 class MockEventSource {
   constructor(url) {
@@ -40,7 +40,7 @@ function jsonResponse(body, status = 200) {
 }
 
 function makeClient(overrides = {}) {
-  return new RunarcanaApiClient({
+  return new ArthinfoApiClient({
     mesaKey: 'ra_mesa_abc',
     baseUrl: 'https://api.runarcana.org/',
     ...overrides,
@@ -58,7 +58,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('RunarcanaApiClient', () => {
+describe('ArthinfoApiClient', () => {
   it('envia X-Mesa-Key e Authorization Bearer ao listar fichas', async () => {
     fetch.mockResolvedValue(jsonResponse([]));
     await makeClient().listDrafts();
@@ -229,6 +229,49 @@ describe('openStream — ticket em vez da chave na URL (FDD-46)', () => {
     });
 
     expect(onMessage).toHaveBeenCalledWith({ draftId: 'd1', roll: { kind: 'damage', total: 7 } });
+  });
+
+  it('entrega evento SSE nomeado "item-equip" ao onMessage', async () => {
+    fetch.mockResolvedValue(ticketResponse());
+    const onMessage = vi.fn();
+    await makeClient().openStream('d1', onMessage, () => {});
+
+    MockEventSource.instances[0].emit('item-equip', {
+      data: JSON.stringify({ draftId: 'd1', itemEquip: { itemId: 'item-1', equipped: true } }),
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({ draftId: 'd1', itemEquip: { itemId: 'item-1', equipped: true } });
+  });
+
+  it('entrega evento SSE nomeado "item-cast" ao onMessage', async () => {
+    fetch.mockResolvedValue(ticketResponse());
+    const onMessage = vi.fn();
+    await makeClient().openStream('d1', onMessage, () => {});
+
+    MockEventSource.instances[0].emit('item-cast', {
+      data: JSON.stringify({ draftId: 'd1', itemCast: { itemId: 'spell-1', using: 'slot', slotLevel: 1 } }),
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({
+      draftId: 'd1',
+      itemCast: { itemId: 'spell-1', using: 'slot', slotLevel: 1 },
+    });
+  });
+
+  it('entrega eventos SSE nomeados "rest" e "spell-slot" ao onMessage', async () => {
+    fetch.mockResolvedValue(ticketResponse());
+    const onMessage = vi.fn();
+    await makeClient().openStream('d1', onMessage, () => {});
+
+    MockEventSource.instances[0].emit('rest', {
+      data: JSON.stringify({ draftId: 'd1', rest: { type: 'long' } }),
+    });
+    MockEventSource.instances[0].emit('spell-slot', {
+      data: JSON.stringify({ draftId: 'd1', spellSlot: { level: 2, value: 1 } }),
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({ draftId: 'd1', rest: { type: 'long' } });
+    expect(onMessage).toHaveBeenCalledWith({ draftId: 'd1', spellSlot: { level: 2, value: 1 } });
   });
 
   it('ticket vencido (EventSource CLOSED) → reabre com ticket novo depois do backoff', async () => {

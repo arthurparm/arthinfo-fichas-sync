@@ -1,8 +1,8 @@
-// Cliente HTTP para o backend Runarcana (runarcana-api).
+// Cliente HTTP para o backend do Arthinfo Fichas (arthinfo-fichas-api).
 // Autentica com a chave da mesa (prefixo ra_mesa_), sem Firebase.
 
 // A API não distingue chave inexistente de revogada — as duas respondem 401
-// (ver resolveMesaKeyHash em runarcana-api/src/auth.js). Carregar o status no
+// (ver resolveMesaKeyHash em arthinfo-fichas-api/src/auth.js). Carregar o status no
 // erro deixa a UI dizer 'chave inválida' em vez de mostrar um número solto.
 function apiError(message, status) {
   const error = new Error(message);
@@ -10,7 +10,7 @@ function apiError(message, status) {
   return error;
 }
 
-export class RunarcanaApiClient {
+export class ArthinfoApiClient {
   constructor({ mesaKey, baseUrl, syncKey } = {}) {
     this.mesaKey = typeof mesaKey === 'string' ? mesaKey.trim() : '';
     this.baseUrl = String(baseUrl || '').replace(/\/+$/, '');
@@ -171,7 +171,7 @@ export class RunarcanaApiClient {
         try {
           onMessage(JSON.parse(event.data));
         } catch (err) {
-          console.error('Runarcana Sync | Erro ao processar evento do stream:', err);
+          console.error('Arthinfo Fichas | Erro ao processar evento do stream:', err);
         }
       };
       // event: roll é evento SSE nomeado — onmessage só recebe o default
@@ -181,9 +181,38 @@ export class RunarcanaApiClient {
         try {
           onMessage(JSON.parse(event.data));
         } catch (err) {
-          console.error('Runarcana Sync | Erro ao processar rolagem do stream:', err);
+          console.error('Arthinfo Fichas | Erro ao processar rolagem do stream:', err);
         }
       });
+      // event: item-equip é outro evento SSE nomeado, mesmo motivo do 'roll'
+      // acima — equipar/desequipar pelo site não é uma atualização de ficha
+      // (onmessage padrão), é um comando pro Foundry aplicar no Ator.
+      source.addEventListener('item-equip', (event) => {
+        try {
+          onMessage(JSON.parse(event.data));
+        } catch (err) {
+          console.error('Arthinfo Fichas | Erro ao processar comando de equipar item do stream:', err);
+        }
+      });
+      // event: item-cast — mesmo motivo do item-equip acima: comando de
+      // conjurar magia, não atualização de ficha.
+      source.addEventListener('item-cast', (event) => {
+        try {
+          onMessage(JSON.parse(event.data));
+        } catch (err) {
+          console.error('Arthinfo Fichas | Erro ao processar comando de conjurar magia do stream:', err);
+        }
+      });
+      // event: rest / spell-slot — comandos do site (descanso, ajuste de slot).
+      for (const eventName of ['rest', 'spell-slot']) {
+        source.addEventListener(eventName, (event) => {
+          try {
+            onMessage(JSON.parse(event.data));
+          } catch (err) {
+            console.error(`Arthinfo Fichas | Erro ao processar comando ${eventName} do stream:`, err);
+          }
+        });
+      }
       source.onerror = (event) => {
         onError?.(event);
         if (source.readyState === EventSource.CLOSED && state.source === source && !state.closed) {

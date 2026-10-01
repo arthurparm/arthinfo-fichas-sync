@@ -2,15 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "runarcana-web",
+      "name": "arthinfo-fichas",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "../rpg-runarcana-ficha", "run", "start"],
+      "runtimeArgs": ["--prefix", "../arthinfo-fichas", "run", "start"],
       "port": 4200
     },
     {
-      "name": "runarcana-api",
+      "name": "arthinfo-fichas-api",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "../runarcana-api", "run", "dev"],
+      "runtimeArgs": ["--prefix", "../arthinfo-fichas-api", "run", "dev"],
       "port": 3000
     }
   ]

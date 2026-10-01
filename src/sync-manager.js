@@ -2,6 +2,7 @@
 import {
   ATTR_MAP,
   ONE_WAY_FOUNDRY_TO_SITE,
+  NON_BLANK_FOUNDRY_PATHS,
   ABILITY_KEYS,
   SKILL_KEY_MAP,
   readActorTraits,
@@ -13,6 +14,11 @@ import {
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 import { postSiteRollToChat } from './chat-roll.js';
 import { consumeSiteHitDieRoll } from './consume-hit-die.js';
+import { applyItemEquip } from './apply-item-equip.js';
+import { applyItemCast } from './apply-item-cast.js';
+import { applyRest } from './apply-rest.js';
+import { applySpellSlot } from './apply-spell-slot.js';
+import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
 function debounce(func, wait) {
@@ -33,7 +39,7 @@ function cleanItemData(itemData) {
   if (cleaned.flags) {
     delete cleaned.flags.core;
     delete cleaned.flags.exportSource;
-    // IMPORTANTE: Nunca delete a flag runarcana-sync.sourceId durante a limpeza,
+    // IMPORTANTE: Nunca delete a flag <id do módulo>.sourceId (novo ou legado) durante a limpeza,
     // pois ela é a chave primária de sincronização.
   }
   return cleaned;
@@ -170,12 +176,12 @@ export class SyncManager {
   }
 
   notifyApiError(action, error, actor) {
-    console.error(`Runarcana Sync | Falha ao ${action} a ficha ${actor?.name || actor?.id || 'desconhecida'}:`, error);
-    ui.notifications.error(`Runarcana Sync: erro ao ${action} a ficha ${actor?.name || actor?.id || ''}: ${error?.message || 'erro desconhecido'}`);
+    console.error(`Arthinfo Fichas | Falha ao ${action} a ficha ${actor?.name || actor?.id || 'desconhecida'}:`, error);
+    ui.notifications.error(`Arthinfo Fichas: erro ao ${action} a ficha ${actor?.name || actor?.id || ''}: ${error?.message || 'erro desconhecido'}`);
   }
 
   async startListening(actor) {
-    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    const draftId = readFlag(actor, 'draftId');
     if (!draftId || this.streams.has(actor.id)) return;
     // Marca a vaga antes de qualquer await, pra uma segunda chamada concorrente
     // (ex: duplo clique) não abrir dois streams pro mesmo ator. Removida no
@@ -208,6 +214,22 @@ export class SyncManager {
             await consumeSiteHitDieRoll(actor, message.roll);
             return;
           }
+          if (message.itemEquip) {
+            await applyItemEquip(actor, message.itemEquip);
+            return;
+          }
+          if (message.itemCast) {
+            await applyItemCast(actor, message.itemCast);
+            return;
+          }
+          if (message.rest) {
+            await applyRest(actor, message.rest);
+            return;
+          }
+          if (message.spellSlot) {
+            await applySpellSlot(actor, message.spellSlot);
+            return;
+          }
           if (message.sourceClientId === this.apiClient.clientId) {
             // Eco da própria escrita deste cliente: já refletido localmente.
             this.lastKnownDraft.set(actor.id, message.data);
@@ -222,7 +244,7 @@ export class SyncManager {
           }
         },
         (error) => {
-          console.warn('Runarcana Sync | Stream desconectado, tentando reconectar automaticamente:', error);
+          console.warn('Arthinfo Fichas | Stream desconectado, tentando reconectar automaticamente:', error);
         },
       );
 
@@ -250,6 +272,7 @@ export class SyncManager {
       if (foundryPath.startsWith('system.abilities')) continue;
       if (ONE_WAY_FOUNDRY_TO_SITE.has(foundryPath)) continue;
       const remoteValue = foundry.utils.getProperty(data, firebasePath);
+      if (NON_BLANK_FOUNDRY_PATHS.has(foundryPath) && (typeof remoteValue !== 'string' || !remoteValue.trim())) continue;
       const localValue = foundry.utils.getProperty(actor, foundryPath);
       if (remoteValue !== undefined && remoteValue !== null && remoteValue !== localValue) {
         updateData[foundryPath] = remoteValue;
@@ -306,7 +329,7 @@ export class SyncManager {
       for (const rItem of remoteItems) {
         // Busca pelo ID original salvo nas flags, ou pelo ID direto
         const lItem = localItems.find(i =>
-          i.getFlag('runarcana-sync', 'sourceId') === rItem._id || i.id === rItem._id
+          readFlag(i, 'sourceId') === rItem._id || i.id === rItem._id
         );
 
         // Sanitiza e formata o item (Especialmente as Activities de magias como Marca da Presa)
@@ -315,7 +338,7 @@ export class SyncManager {
         if (!lItem) {
           // Criação de novo item vindo do backend
           const newItem = sanitizedRemoteItem;
-          foundry.utils.setProperty(newItem, 'flags.runarcana-sync.sourceId', rItem._id);
+          foundry.utils.setProperty(newItem, `flags.${MODULE_ID}.sourceId`, rItem._id);
           delete newItem._id; // O Foundry DEVE gerar o _id local
           toCreate.push(newItem);
         } else {
@@ -325,14 +348,16 @@ export class SyncManager {
 
           // Iguala os IDs temporariamente para a comparação de diff não falhar por isso
           rItemClean._id = lItemClean._id;
-          if(lItemClean.flags?.['runarcana-sync']) delete lItemClean.flags['runarcana-sync'];
-          if(rItemClean.flags?.['runarcana-sync']) delete rItemClean.flags['runarcana-sync'];
+          for (const scope of [MODULE_ID, LEGACY_MODULE_ID]) {
+            if (lItemClean.flags?.[scope]) delete lItemClean.flags[scope];
+            if (rItemClean.flags?.[scope]) delete rItemClean.flags[scope];
+          }
 
           // Compara os objetos limpos
           if (JSON.stringify(lItemClean) !== JSON.stringify(rItemClean)) {
             const updatePayload = sanitizedRemoteItem;
             updatePayload._id = lItem.id; // Usa o ID local do Foundry
-            foundry.utils.setProperty(updatePayload, 'flags.runarcana-sync.sourceId', rItem._id);
+            foundry.utils.setProperty(updatePayload, `flags.${MODULE_ID}.sourceId`, rItem._id);
             toUpdate.push(updatePayload);
           }
         }
@@ -342,7 +367,7 @@ export class SyncManager {
       // Itens nativos do Foundry (classe, raça, Fúria...) não têm essa
       // flag — se o site ainda não os conhece, não podem sumir do Ator.
       for (const lItem of localItems) {
-        const sourceId = lItem.getFlag('runarcana-sync', 'sourceId');
+        const sourceId = readFlag(lItem, 'sourceId');
         if (!sourceId) continue;
         const existsRemote = remoteItems.some(i => i._id === sourceId);
         if (!existsRemote) {
@@ -377,7 +402,7 @@ export class SyncManager {
     try {
       matches = await findItemsByCatalogKeys(wantedIds);
     } catch (error) {
-      console.warn('Runarcana Sync | Falha ao procurar itens de equipamento no compêndio:', error);
+      console.warn('Arthinfo Fichas | Falha ao procurar itens de equipamento no compêndio:', error);
       return;
     }
     if (matches.size === 0) return;
@@ -387,7 +412,7 @@ export class SyncManager {
 
     for (const [catalogKey, ref] of matches) {
       const alreadyEquipped = localItems.some(
-        (item) => item.getFlag('runarcana-sync', 'catalogKey') === catalogKey
+        (item) => readFlag(item, 'catalogKey') === catalogKey
       );
       if (alreadyEquipped) continue;
 
@@ -397,7 +422,7 @@ export class SyncManager {
 
       const itemData = sourceDoc.toObject();
       delete itemData._id;
-      foundry.utils.setProperty(itemData, 'flags.runarcana-sync.catalogKey', catalogKey);
+      foundry.utils.setProperty(itemData, `flags.${MODULE_ID}.catalogKey`, catalogKey);
       toCreate.push(itemData);
     }
 
@@ -409,7 +434,7 @@ export class SyncManager {
   async handleActorUpdate(actor, changes) {
     if (this.activeSyncs.has(actor.id)) return;
 
-    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    const draftId = readFlag(actor, 'draftId');
     if (!draftId) return;
 
     this.debouncedActorUpdate(actor, draftId);
@@ -475,7 +500,7 @@ export class SyncManager {
     for (const item of actor.items) {
       try {
         const data = item.toObject();
-        data._id = item.getFlag('runarcana-sync', 'sourceId') || data._id;
+        data._id = readFlag(item, 'sourceId') || data._id;
         data.img = absoluteImg(data.img);
         const cleaned = cleanItemData(data);
         // advancement de classe/raça é enorme e não é lido pela ficha —
@@ -485,9 +510,9 @@ export class SyncManager {
         }
         itemsData.push(cleaned);
       } catch (error) {
-        console.warn(`Runarcana Sync | Não foi possível serializar ${item.name} (${item.type}):`, error);
+        console.warn(`Arthinfo Fichas | Não foi possível serializar ${item.name} (${item.type}):`, error);
         itemsData.push({
-          _id: item.getFlag('runarcana-sync', 'sourceId') || item.id,
+          _id: readFlag(item, 'sourceId') || item.id,
           name: item.name,
           type: item.type,
           img: absoluteImg(item.img),
@@ -505,7 +530,7 @@ export class SyncManager {
   async _saveDraftFromActor(actor, draftId, overlay, errorAction) {
     const writeOnce = async () => {
       if (!this.lastKnownDraft.has(actor.id)) {
-        console.warn(`Runarcana Sync | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+        console.warn(`Arthinfo Fichas | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
         return null;
       }
       const base = foundry.utils.deepClone(this.lastKnownDraft.get(actor.id));
@@ -542,7 +567,7 @@ export class SyncManager {
     // Sem uma ficha base conhecida (ex: falha na carga inicial), NÃO salvamos —
     // um PUT sem base apagaria concept/identity/equipment no backend.
     if (!this.lastKnownDraft.has(actor.id)) {
-      console.warn(`Runarcana Sync | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+      console.warn(`Arthinfo Fichas | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
       return;
     }
     await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
@@ -552,7 +577,7 @@ export class SyncManager {
 
   async handleItemUpdate(actor) {
     if (this.activeSyncs.has(actor.id)) return;
-    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    const draftId = readFlag(actor, 'draftId');
     if (!draftId) return;
 
     this.debouncedItemUpdate(actor, draftId);
@@ -562,7 +587,7 @@ export class SyncManager {
     // Mesmo motivo do guard em _executeActorUpdate: sem uma ficha base
     // conhecida, um PUT aqui apagaria concept/identity/equipment no backend.
     if (!this.lastKnownDraft.has(actor.id)) {
-      console.warn(`Runarcana Sync | Ignorando atualização de itens de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+      console.warn(`Arthinfo Fichas | Ignorando atualização de itens de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
       return;
     }
 

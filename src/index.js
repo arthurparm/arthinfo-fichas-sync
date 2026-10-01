@@ -1,14 +1,16 @@
 // foundry-module/src/index.js
-import { RunarcanaApiClient } from './api-client.js';
+import { ArthinfoApiClient } from './api-client.js';
 import { DraftSelectorDialog, getDraftIdsLinkedToOtherActors } from './draft-selector.js';
 import { CompendiumSyncDialog } from './compendium-sync-dialog.js';
 import { SyncManager } from './sync-manager.js';
+import { runLegacyMigration } from './legacy-migration.js';
+import { MODULE_ID, clearFlag, readFlag } from './module-id.js';
 
 let apiClient = null;
 let syncManager = null;
 
 function getStringSetting(key) {
-  const value = game.settings.get('runarcana-sync', key);
+  const value = game.settings.get(MODULE_ID, key);
   return typeof value === 'string' ? value.trim() : '';
 }
 
@@ -26,7 +28,7 @@ function openCompendiumSyncDialog() {
     ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
     return;
   }
-  const client = new RunarcanaApiClient({
+  const client = new ArthinfoApiClient({
     mesaKey,
     baseUrl: backendUrl,
     syncKey,
@@ -36,7 +38,7 @@ function openCompendiumSyncDialog() {
 
 async function unlinkActor(actor, message) {
   syncManager?.stopListening(actor);
-  await actor.unsetFlag('runarcana-sync', 'draftId');
+  await clearFlag(actor, 'draftId');
   ui.notifications.info(message ?? `${actor.name}: desvinculado da ficha.`);
 }
 
@@ -52,7 +54,7 @@ async function cleanupDuplicateDraftLinks() {
 
   const byDraft = new Map();
   for (const actor of game.actors) {
-    const draftId = actor.getFlag('runarcana-sync', 'draftId');
+    const draftId = readFlag(actor, 'draftId');
     if (!draftId) continue;
     if (!byDraft.has(draftId)) byDraft.set(draftId, []);
     byDraft.get(draftId).push(actor);
@@ -66,7 +68,7 @@ async function cleanupDuplicateDraftLinks() {
     for (const duplicate of duplicates) {
       await unlinkActor(
         duplicate,
-        `Runarcana Sync: ${duplicate.name} estava vinculado à mesma ficha que ${keep.name} — desvinculado automaticamente (limpeza de duplicata).`,
+        `Arthinfo Fichas: ${duplicate.name} estava vinculado à mesma ficha que ${keep.name} — desvinculado automaticamente (limpeza de duplicata).`,
       );
     }
   }
@@ -84,7 +86,7 @@ async function openDraftSelector(actor) {
     return ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
   }
 
-  const currentDraftId = actor.getFlag('runarcana-sync', 'draftId');
+  const currentDraftId = readFlag(actor, 'draftId');
   if (currentDraftId) {
     const { DialogV2 } = foundry.applications.api;
     const wantsUnlink = await DialogV2.confirm({
@@ -104,7 +106,7 @@ async function openDraftSelector(actor) {
 // Adaptador mínimo pra aparecer como botão no painel de configurações do
 // módulo (game.settings.registerMenu exige uma classe estilo Application).
 // Se o botão não renderizar certinho na sua versão do Foundry, use o macro
-// documentado no README (game.modules.get('runarcana-sync').api.openCompendiumSync()).
+// documentado no README (game.modules.get(MODULE_ID).api.openCompendiumSync()).
 class CompendiumSyncMenuApp extends FormApplication {
   constructor() {
     super({});
@@ -119,7 +121,7 @@ class CompendiumSyncMenuApp extends FormApplication {
 }
 
 Hooks.once('init', () => {
-  game.settings.register('runarcana-sync', 'mesaKey', {
+  game.settings.register(MODULE_ID, 'mesaKey', {
     name: 'Chave da mesa',
     hint: 'Gerada no site, na página da mesa. Cole aqui.',
     scope: 'world',
@@ -129,7 +131,7 @@ Hooks.once('init', () => {
     requiresReload: true
   });
 
-  game.settings.register('runarcana-sync', 'compendiumSyncKey', {
+  game.settings.register(MODULE_ID, 'compendiumSyncKey', {
     name: 'Chave de Sincronização de Compêndio',
     hint: 'Só para enviar itens ao catálogo compartilhado do site (COMPENDIUM_SYNC_KEY). Não é a chave da mesa nem login. Deixe em branco e use só a Chave da mesa (acima) para sincronizar homebrew restrito à sua mesa, em vez do catálogo público.',
     scope: 'world',
@@ -140,14 +142,14 @@ Hooks.once('init', () => {
 
   // Guarda a última seleção de compêndios pro diálogo de sincronização não
   // precisar remarcar tudo toda vez. Não aparece no painel de config.
-  game.settings.register('runarcana-sync', 'compendiumSyncSelection', {
+  game.settings.register(MODULE_ID, 'compendiumSyncSelection', {
     scope: 'world',
     config: false,
     type: Array,
     default: []
   });
 
-  game.settings.registerMenu('runarcana-sync', 'compendiumSyncMenu', {
+  game.settings.registerMenu(MODULE_ID, 'compendiumSyncMenu', {
     name: 'Sincronizar Compêndio de Itens',
     label: 'Abrir Sincronização',
     hint: 'Escolhe quais compêndios de itens do mundo sincronizar com o backend, pra alimentar o seletor de equipamento do site.',
@@ -156,9 +158,9 @@ Hooks.once('init', () => {
     restricted: true
   });
 
-  game.settings.register('runarcana-sync', 'backendUrl', {
-    name: 'URL do Backend Runarcana',
-    hint: 'URL base do runarcana-api. Só altere se estiver hospedando o backend por conta própria.',
+  game.settings.register(MODULE_ID, 'backendUrl', {
+    name: 'URL do Backend Arthinfo Fichas',
+    hint: 'URL base do arthinfo-fichas-api. Só altere se estiver hospedando o backend por conta própria.',
     scope: 'world',
     config: true,
     type: String,
@@ -170,25 +172,29 @@ Hooks.once('init', () => {
 Hooks.once('ready', async () => {
   // Ponto de entrada estável pra abrir a sincronização de compêndio via
   // macro, caso o botão do menu de configurações não apareça na sua versão
-  // do Foundry: game.modules.get('runarcana-sync').api.openCompendiumSync()
-  const thisModule = game.modules.get('runarcana-sync');
+  // do Foundry: game.modules.get(MODULE_ID).api.openCompendiumSync()
+  const thisModule = game.modules.get(MODULE_ID);
   if (thisModule) {
     thisModule.api = { openCompendiumSync: openCompendiumSyncDialog };
   }
+
+  // Traz vínculos e configurações do id antigo ('runarcana-sync'). Precisa vir
+  // antes de ler as configurações e de o sync começar a ouvir os Atores.
+  await runLegacyMigration(game);
 
   const mesaKey = getStringSetting('mesaKey');
   const backendUrl = getStringSetting('backendUrl');
 
   if (!mesaKey) {
-    console.warn('Runarcana Sync | Chave da mesa não configurada nas configurações do módulo.');
+    console.warn('Arthinfo Fichas | Chave da mesa não configurada nas configurações do módulo.');
     return;
   }
   if (!backendUrl) {
-    console.warn('Runarcana Sync | URL do backend não configurada nas configurações do módulo.');
+    console.warn('Arthinfo Fichas | URL do backend não configurada nas configurações do módulo.');
     return;
   }
 
-  apiClient = new RunarcanaApiClient({
+  apiClient = new ArthinfoApiClient({
     mesaKey,
     baseUrl: backendUrl,
     syncKey: getStringSetting('compendiumSyncKey'),
@@ -197,7 +203,7 @@ Hooks.once('ready', async () => {
 
   await cleanupDuplicateDraftLinks();
   game.actors.forEach(actor => syncManager.startListening(actor));
-  console.log('Runarcana Sync | Backend configurado e ouvindo atores vinculados.');
+  console.log('Arthinfo Fichas | Backend configurado e ouvindo atores vinculados.');
 
   if (thisModule) {
     thisModule.api.apiClient = apiClient;
@@ -211,20 +217,20 @@ Hooks.on('updateActor', (actor, changes, options, userId) => {
 });
 
 // Duplicar um Ator no Foundry copia os flags junto — inclusive
-// runarcana-sync.draftId. Sem essa checagem, o Ator duplicado herda o
+// <id do módulo>.draftId. Sem essa checagem, o Ator duplicado herda o
 // vínculo do original e os dois passam a escrever na mesma ficha (mesmo
 // sem nunca ter passado pelo seletor de "Vincular").
 Hooks.on('createActor', (actor, options, userId) => {
   if (userId !== game.user.id) return;
-  const draftId = actor.getFlag('runarcana-sync', 'draftId');
+  const draftId = readFlag(actor, 'draftId');
   if (!draftId) return;
 
   const linkedElsewhere = getDraftIdsLinkedToOtherActors(game.actors, actor.id);
   if (!linkedElsewhere.has(draftId)) return;
 
-  actor.unsetFlag('runarcana-sync', 'draftId');
+  clearFlag(actor, 'draftId');
   ui.notifications.warn(
-    `Runarcana Sync: ${actor.name} veio com um vínculo herdado (provavelmente de uma duplicação) de uma ficha já vinculada a outro Ator — desvinculado automaticamente.`,
+    `Arthinfo Fichas: ${actor.name} veio com um vínculo herdado (provavelmente de uma duplicação) de uma ficha já vinculada a outro Ator — desvinculado automaticamente.`,
   );
 });
 
@@ -283,12 +289,12 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
   const actor = app.object;
   if (!actor || actor.documentName !== 'Actor') return;
 
-  const isLinked = !!actor.getFlag('runarcana-sync', 'draftId');
+  const isLinked = !!readFlag(actor, 'draftId');
 
   buttons.unshift({
-    class: 'runarcana-sync-btn',
+    class: 'arthinfo-fichas-sync-btn',
     icon: 'fas fa-sync',
-    label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
+    label: isLinked ? 'Arthinfo (Vinculado)' : 'Arthinfo Fichas Sync',
     onclick: () => openDraftSelector(actor)
   });
 });
@@ -298,13 +304,13 @@ Hooks.on('getHeaderControlsActorSheetV2', (app, controls) => {
   const actor = app.document;
   if (!actor || actor.documentName !== 'Actor') return;
 
-  const isLinked = !!actor.getFlag('runarcana-sync', 'draftId');
+  const isLinked = !!readFlag(actor, 'draftId');
 
   controls.unshift({
-    action: 'runarcana-sync',
+    action: 'arthinfo-fichas-sync',
     icon: 'fas fa-sync',
-    label: isLinked ? 'Runarcana (Vinculado)' : 'Runarcana Sync',
-    class: 'runarcana-sync-btn',
+    label: isLinked ? 'Arthinfo (Vinculado)' : 'Arthinfo Fichas Sync',
+    class: 'arthinfo-fichas-sync-btn',
     onClick: () => openDraftSelector(actor)
   });
 });

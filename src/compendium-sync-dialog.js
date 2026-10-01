@@ -1,5 +1,6 @@
 // foundry-module/src/compendium-sync-dialog.js
 import { listItemCompendia, syncCompendiums } from './compendium-sync.js';
+import { MODULE_ID } from './module-id.js';
 
 const SELECTION_SETTING = 'compendiumSyncSelection';
 
@@ -163,7 +164,7 @@ export class CompendiumSyncDialog {
 
     let lastSelection = [];
     try {
-      lastSelection = game.settings.get('runarcana-sync', SELECTION_SETTING) ?? [];
+      lastSelection = game.settings.get(MODULE_ID, SELECTION_SETTING) ?? [];
     } catch {
       lastSelection = [];
     }
@@ -229,22 +230,22 @@ export class CompendiumSyncDialog {
             const packIds = Array.from(checkboxes).map((el) => el.value);
 
             if (packIds.length === 0) {
-              ui.notifications.warn('Runarcana Sync: selecione ao menos um compêndio.');
+              ui.notifications.warn('Arthinfo Fichas: selecione ao menos um compêndio.');
               return;
             }
 
-            await game.settings.set('runarcana-sync', SELECTION_SETTING, packIds);
+            await game.settings.set(MODULE_ID, SELECTION_SETTING, packIds);
 
             try {
               const result = await syncCompendiums(apiClient, packIds, (current, total) => {
-                ui.notifications.info(`Runarcana Sync: sincronizando lote ${current} de ${total}...`);
+                ui.notifications.info(`Arthinfo Fichas: sincronizando lote ${current} de ${total}...`);
               });
               ui.notifications.info(
-                `Runarcana Sync: ${result.totalSynced} itens sincronizados de ${result.packSummaries.length} compêndio(s).`,
+                `Arthinfo Fichas: ${result.totalSynced} itens sincronizados de ${result.packSummaries.length} compêndio(s).`,
               );
             } catch (error) {
-              console.error('Runarcana Sync | Erro ao sincronizar compêndio:', error);
-              ui.notifications.error(`Runarcana Sync: erro ao sincronizar compêndio: ${error.message}`);
+              console.error('Arthinfo Fichas | Erro ao sincronizar compêndio:', error);
+              ui.notifications.error(`Arthinfo Fichas: erro ao sincronizar compêndio: ${error.message}`);
             }
           },
         },
