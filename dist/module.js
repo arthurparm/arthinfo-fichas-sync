@@ -1440,7 +1440,7 @@ var Q, $, tt = e((() => {
 			scope: "world",
 			config: !0,
 			type: String,
-			default: "https://api.runarcana.org",
+			default: "https://arthinfo-api.arthur-paraiso-mar.workers.dev",
 			requiresReload: !0
 		});
 	}), Hooks.once("ready", async () => {
