@@ -163,7 +163,7 @@ Hooks.once('init', () => {
     scope: 'world',
     config: true,
     type: String,
-    default: 'https://api.runarcana.org',
+    default: 'https://arthinfo-api.arthur-paraiso-mar.workers.dev',
     requiresReload: true
   });
 });

@@ -20,7 +20,7 @@ atualizações ao vivo (via SSE).
 4. No cabeçalho da ficha de um Ator, use o botão **Arthinfo Fichas Sync** para
    vincular o Ator a uma ficha da mesa.
 
-A **URL do Backend Arthinfo Fichas** já vem como `https://api.runarcana.org`. Só
+A **URL do Backend Arthinfo Fichas** já vem como `https://arthinfo-api.arthur-paraiso-mar.workers.dev`. Só
 altere se estiver hospedando o backend por conta própria.
 
 Sem a chave da mesa, o botão avisa para colá-la nas configurações. Não há
