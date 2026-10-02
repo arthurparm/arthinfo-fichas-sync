@@ -1,13 +1,16 @@
 // Versão = função do número de commits (odômetro, 100 por casa):
 //   99 commits  -> 0.0.99      100 -> 0.1.0      9999 -> 0.99.99      10000 -> 1.0.0
-// Roda no hook pre-commit (ver .githooks/pre-commit), então cada commit nasce com a
-// versão do próprio número. Edita package.json, package-lock.json e module.json
+// Roda no hook pre-commit (ver .githooks/pre-commit) SÓ na branch principal: em branch
+// de tarefa o hook não mexe em nada (o merge é squash via PR, então o commit que entra na
+// principal não passa pelo hook). A versão "de verdade" de um build é calculada no deploy
+// com --print e exposta no /health. Edita package.json, package-lock.json e module.json
 // (Foundry), preservando formatação e fim de linha. Não usa `npm version`, que
 // seguiria o semver comum (0.0.99 -> 0.0.100).
 //
 // Uso:
 //   node scripts/sync-version.mjs --stage          # grava a versão do próximo commit e faz git add
 //   node scripts/sync-version.mjs                  # só grava
+//   node scripts/sync-version.mjs --print          # imprime a versão de HEAD (contagem de commits), sem gravar
 //   node scripts/sync-version.mjs --check          # confere se os arquivos batem com HEAD (exit 1 se não)
 //   node scripts/sync-version.mjs --install-hooks  # git config core.hooksPath .githooks
 // Desvio: SKIP_VERSION_BUMP=1 git commit ...  (ex.: `git commit --amend`, que não aumenta a contagem)
@@ -67,6 +70,26 @@ export function commitCount() {
   }
 }
 
+// Branch principal do remoto (origin/HEAD); sem remoto, main ou master.
+export function defaultBranch() {
+  try {
+    return git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).replace('origin/', '');
+  } catch {
+    return null;
+  }
+}
+
+export function onDefaultBranch() {
+  let current;
+  try {
+    current = git(['symbolic-ref', '--short', 'HEAD']);
+  } catch {
+    return false; // HEAD solto (rebase, checkout de tag): não grava versão
+  }
+  const def = defaultBranch();
+  return def ? current === def : current === 'main' || current === 'master';
+}
+
 function applyToFiles(version, { write }) {
   const changed = [];
   for (const file of FILES) {
@@ -94,6 +117,11 @@ function main(argv) {
     return;
   }
 
+  if (argv.includes('--print')) {
+    console.log(versionFromCount(commitCount()));
+    return;
+  }
+
   if (argv.includes('--check')) {
     const expected = versionFromCount(commitCount());
     const stale = applyToFiles(expected, { write: false });
@@ -102,6 +130,11 @@ function main(argv) {
       process.exit(1);
     }
     console.log(`versão ok: ${expected}`);
+    return;
+  }
+
+  if (argv.includes('--stage') && !onDefaultBranch()) {
+    console.log('versão: branch de tarefa, não grava (a versão é calculada no deploy)');
     return;
   }
 
