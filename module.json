@@ -1,7 +1,7 @@
 {
   "id": "arthinfo-fichas-sync",
   "title": "Arthinfo Fichas Sync",
-  "version": "0.0.68",
+  "version": "0.0.70",
   "compatibility": {
     "minimum": "13",
     "verified": "14"
@@ -21,6 +21,6 @@
     "dist/module.js"
   ],
   "description": "Sincroniza fichas do Arthinfo Fichas (via arthinfo-fichas-api) com Atores do Foundry, incluindo sincronização de compêndios de itens curados pelo mestre.",
-  "manifest": "https://raw.githubusercontent.com/arthurparm/arthinfo-fichas-sync/main/module.json",
-  "download": "https://github.com/arthurparm/arthinfo-fichas-sync/releases/download/v0.0.68/module.zip"
+  "manifest": "https://raw.githubusercontent.com/arthurparm/arthinfo-fichas-sync/master/module.json",
+  "download": "https://github.com/arthurparm/arthinfo-fichas-sync/releases/download/v0.0.70/module.zip"
 }
