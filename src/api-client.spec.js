@@ -116,6 +116,54 @@ describe('ArthinfoApiClient', () => {
     });
   });
 
+  it('PATCH da ficha manda só o patch, com If-Match e X-Client-Id (FDD-78)', async () => {
+    fetch.mockResolvedValue(jsonResponse({ id: 'd1', updatedAt: 't1' }));
+
+    const saved = await makeClient().patchDraft(
+      'd1',
+      { set: { 'derivedStats.currentHp': 5 } },
+      '2026-01-01T10:00:00.000Z',
+    );
+
+    expect(saved).toEqual({ id: 'd1', updatedAt: 't1' });
+    expect(fetch).toHaveBeenLastCalledWith('https://api.runarcana.org/api/drafts/d1', {
+      method: 'PATCH',
+      headers: {
+        'X-Mesa-Key': 'ra_mesa_abc',
+        Authorization: 'Bearer ra_mesa_abc',
+        'Content-Type': 'application/json',
+        'X-Client-Id': 'client-test-id',
+        'If-Match': '2026-01-01T10:00:00.000Z',
+      },
+      body: JSON.stringify({ set: { 'derivedStats.currentHp': 5 } }),
+    });
+  });
+
+  it('PATCH em 409 expõe o current; em 404 expõe o code; em HTML (API antiga) só o status', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ error: 'x', current: { id: 'd1', updatedAt: 't9' } }, 409));
+    await expect(makeClient().patchDraft('d1', { set: {} }, 't0')).rejects.toMatchObject({
+      status: 409,
+      current: { id: 'd1', updatedAt: 't9' },
+    });
+
+    fetch.mockResolvedValueOnce(jsonResponse({ error: 'Ficha não encontrada.', code: 'DRAFT_NOT_FOUND' }, 404));
+    await expect(makeClient().patchDraft('d1', { set: {} }, 't0')).rejects.toMatchObject({
+      status: 404,
+      code: 'DRAFT_NOT_FOUND',
+    });
+
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => {
+        throw new Error('not json');
+      },
+    });
+    const error = await makeClient().patchDraft('d1', { set: {} }, 't0').catch((e) => e);
+    expect(error.status).toBe(404);
+    expect(error.code).toBeUndefined();
+  });
+
   it('retorna null quando o GET da ficha responde 404', async () => {
     fetch.mockResolvedValue(jsonResponse(null, 404));
     expect(await makeClient().getDraft('missing')).toBeNull();
