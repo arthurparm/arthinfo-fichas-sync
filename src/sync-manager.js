@@ -176,6 +176,11 @@ export class SyncManager {
     // que o Foundry não conhece (concept, identity, equipment, etc.) ao
     // gravar via PUT, que substitui o registro inteiro no backend.
     this.lastKnownDraft = new Map();
+    // Cauda de PUTs por ator: o debounce do Ator e o de itens são separados,
+    // então dois PUT full-replace podem disparar juntos (FDD-36). Cada um
+    // clonaria a mesma base e o mais lento sobrescreveria o mais rápido.
+    // Serializar garante que o segundo parta do draft que o primeiro salvou.
+    this.saveQueues = new Map();
 
     this.debouncedActorUpdate = debounce(this._executeActorUpdate.bind(this), 1000);
     this.debouncedItemUpdate = debounce(this._executeItemUpdate.bind(this), 1000);
@@ -540,7 +545,19 @@ export class SyncManager {
     base.effects = serializeActorEffects(actor);
   }
 
-  async _saveDraftFromActor(actor, draftId, overlay, errorAction) {
+  _saveDraftFromActor(actor, draftId, overlay, errorAction) {
+    const previous = this.saveQueues.get(actor.id) ?? Promise.resolve();
+    const run = previous.then(() => this._saveDraftFromActorNow(actor, draftId, overlay, errorAction));
+    // A fila segue mesmo se este save falhar; quem chamou ainda recebe o erro.
+    const tail = run.catch(() => {});
+    this.saveQueues.set(actor.id, tail);
+    tail.then(() => {
+      if (this.saveQueues.get(actor.id) === tail) this.saveQueues.delete(actor.id);
+    });
+    return run;
+  }
+
+  async _saveDraftFromActorNow(actor, draftId, overlay, errorAction) {
     const writeOnce = async () => {
       if (!this.lastKnownDraft.has(actor.id)) {
         console.warn(`Arthinfo Fichas | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
