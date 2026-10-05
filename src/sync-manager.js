@@ -284,11 +284,15 @@ export class SyncManager {
 
   async _applyRemoteDraft(actor, data) {
     const updateData = {};
+    const siteHasNoHp = !(foundry.utils.getProperty(data, 'derivedStats.maxHp') > 0);
 
     // 1. Processamento dinâmico de todos os atributos mapeados
     for (const [foundryPath, firebasePath] of Object.entries(ATTR_MAP)) {
       if (foundryPath.startsWith('system.abilities')) continue;
       if (ONE_WAY_FOUNDRY_TO_SITE.has(foundryPath)) continue;
+      // Ficha sem PV máximo (0 herdado de Ator sem classe): o hp.value dela
+      // não é um PV real e não pode zerar o Ator ao reconectar (FDD-90).
+      if (siteHasNoHp && foundryPath.startsWith('system.attributes.hp.')) continue;
       const remoteValue = foundry.utils.getProperty(data, firebasePath);
       if (NON_BLANK_FOUNDRY_PATHS.has(foundryPath) && (typeof remoteValue !== 'string' || !remoteValue.trim())) continue;
       const localValue = foundry.utils.getProperty(actor, foundryPath);
