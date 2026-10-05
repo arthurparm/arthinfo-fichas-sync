@@ -284,7 +284,8 @@ export class SyncManager {
 
   async _applyRemoteDraft(actor, data) {
     const updateData = {};
-    const siteHasNoHp = !(foundry.utils.getProperty(data, 'derivedStats.maxHp') > 0);
+    const remoteMaxHp = foundry.utils.getProperty(data, 'derivedStats.maxHp');
+    const siteHasNoHp = typeof remoteMaxHp === 'number' && remoteMaxHp <= 0;
 
     // 1. Processamento dinâmico de todos os atributos mapeados
     for (const [foundryPath, firebasePath] of Object.entries(ATTR_MAP)) {
