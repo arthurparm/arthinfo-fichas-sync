@@ -460,8 +460,12 @@ export class SyncManager {
   }
 
   _overlayActorOntoDraft(actor, base) {
+    // Ator sem classe/PV aplicado (hp.max 0) ainda não tem PV de verdade:
+    // não envia hp.* pro site, que senão mostra 0/0 e "caído" (FDD-90).
+    const actorHasNoHp = !(foundry.utils.getProperty(actor, 'system.attributes.hp.max') > 0);
     for (const [foundryPath, firebasePath] of Object.entries(ATTR_MAP)) {
       if (foundryPath.startsWith('system.abilities')) continue;
+      if (actorHasNoHp && foundryPath.startsWith('system.attributes.hp.')) continue;
       const currentValue = foundry.utils.getProperty(actor, foundryPath);
       if (currentValue !== undefined) {
         foundry.utils.setProperty(base, firebasePath, currentValue);
