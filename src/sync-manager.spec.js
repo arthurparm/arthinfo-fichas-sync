@@ -212,6 +212,66 @@ describe('SyncManager._executeActorUpdate — If-Match / 409 (FDD-35)', () => {
   });
 });
 
+describe('SyncManager — PUTs do mesmo Ator em fila (FDD-36)', () => {
+  function makeSyncActor() {
+    const actor = makeActor();
+    actor.name = 'Lyra';
+    actor.img = '';
+    actor.classes = {};
+    actor.items = [];
+    return actor;
+  }
+
+  it('o PUT de itens parte do draft que o PUT do Ator acabou de salvar, sem rodar em paralelo', async () => {
+    const actor = makeSyncActor();
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const bases = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const apiClient = {
+      saveDraft: vi.fn(async (_id, payload) => {
+        bases.push(payload.updatedAt);
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        if (bases.length === 1) await gate;
+        inFlight -= 1;
+        return { ...payload, updatedAt: `t${bases.length}` };
+      }),
+    };
+    const manager = new SyncManager(apiClient);
+    manager.lastKnownDraft.set(actor.id, { id: 'draft-1', updatedAt: 't0', concept: { name: 'Lyra' } });
+
+    const first = manager._executeActorUpdate(actor, 'draft-1');
+    const second = manager._executeItemUpdate(actor, 'draft-1');
+    await Promise.resolve();
+    release();
+    await Promise.all([first, second]);
+
+    expect(maxInFlight).toBe(1);
+    expect(bases).toEqual(['t0', 't1']);
+    expect(manager.lastKnownDraft.get(actor.id).updatedAt).toBe('t2');
+  });
+
+  it('um PUT que falha não trava a fila: o próximo ainda roda', async () => {
+    const actor = makeSyncActor();
+    const apiClient = {
+      saveDraft: vi.fn()
+        .mockRejectedValueOnce(new Error('rede'))
+        .mockResolvedValueOnce({ id: 'draft-1', updatedAt: 't1' }),
+    };
+    const manager = new SyncManager(apiClient);
+    manager.lastKnownDraft.set(actor.id, { id: 'draft-1', updatedAt: 't0' });
+
+    const first = manager._executeActorUpdate(actor, 'draft-1');
+    const second = manager._executeItemUpdate(actor, 'draft-1');
+
+    await expect(first).rejects.toThrow('rede');
+    await expect(second).resolves.toBeUndefined();
+    expect(apiClient.saveDraft).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('SyncManager.startListening — evento roll', () => {
   it('não trata payload de roll como atualização de ficha', async () => {
     global.game = { user: { isGM: true }, messages: { contents: [] } };
