@@ -113,6 +113,40 @@ export class ArthinfoApiClient {
   }
 
   /**
+   * Escrita parcial (FDD-78): manda só o que mudou. `ifMatch` é o updatedAt da
+   * última ficha conhecida e é obrigatório, igual ao PUT de ficha existente.
+   * Erros carregam `status` e, quando a API manda, `code` (ex.: DRAFT_NOT_FOUND,
+   * que separa "ficha apagada" de "API antiga sem PATCH").
+   */
+  async patchDraft(draftId, patch, ifMatch) {
+    const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
+      method: 'PATCH',
+      headers: this._headers({
+        'Content-Type': 'application/json',
+        'X-Client-Id': this.clientId,
+        ...(ifMatch ? { 'If-Match': ifMatch } : {}),
+      }),
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) return res.json();
+
+    let parsed = null;
+    try {
+      parsed = await res.json();
+    } catch {
+      parsed = null;
+    }
+    if (res.status === 409) {
+      const error = apiError(parsed?.error || 'Ficha foi modificada por outra origem desde a última leitura.', 409);
+      error.current = parsed?.current ?? null;
+      throw error;
+    }
+    const error = apiError(parsed?.error || `Falha ao salvar a ficha (HTTP ${res.status}).`, res.status);
+    if (parsed?.code) error.code = parsed.code;
+    throw error;
+  }
+
+  /**
    * Troca a chave da mesa (header) por um ticket opaco de curta duração,
    * preso a esta ficha, pra abrir o stream SSE. A chave nunca vai na URL
    * (FDD-46): EventSource não manda header, e query string cai em access

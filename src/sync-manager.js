@@ -11,6 +11,7 @@ import {
   foundrySkillValueToProficiencyLevel,
   proficiencyLevelToFoundrySkillValue,
 } from './data-mapper.js';
+import { UNSUPPORTED, buildPatch } from './draft-diff.js';
 import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
 import { postSiteRollToChat } from './chat-roll.js';
 import { consumeSiteHitDieRoll } from './consume-hit-die.js';
@@ -557,15 +558,42 @@ export class SyncManager {
     return run;
   }
 
+  // Grava só o que mudou (PATCH, FDD-78). Cai no PUT inteiro quando o diff sai
+  // da allowlist da API ou quando a API é antiga e não tem PATCH. Devolve o
+  // draft salvo, ou null se nada mudou (não chama a API).
+  async _persistDraft(draftId, before, next) {
+    if (this.patchSupported === false) return this.apiClient.saveDraft(draftId, next);
+
+    const patch = buildPatch(before, next);
+    if (patch === null) return null;
+    if (patch === UNSUPPORTED) return this.apiClient.saveDraft(draftId, next);
+
+    try {
+      return await this.apiClient.patchDraft(draftId, patch, before.updatedAt);
+    } catch (error) {
+      // Ficha apagada (404 com code) e 409/401/403... sobem; só "API sem PATCH"
+      // (404/405 genérico) ou patch recusado (400/413) viram PUT.
+      const apiWithoutPatch =
+        (error?.status === 404 && error.code !== 'DRAFT_NOT_FOUND') || error?.status === 405;
+      if (apiWithoutPatch) this.patchSupported = false;
+      if (apiWithoutPatch || error?.status === 400 || error?.status === 413) {
+        console.warn(`Arthinfo Fichas | PATCH recusado (HTTP ${error.status}); enviando a ficha inteira por PUT.`);
+        return this.apiClient.saveDraft(draftId, next);
+      }
+      throw error;
+    }
+  }
+
   async _saveDraftFromActorNow(actor, draftId, overlay, errorAction) {
     const writeOnce = async () => {
       if (!this.lastKnownDraft.has(actor.id)) {
         console.warn(`Arthinfo Fichas | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
         return null;
       }
-      const base = foundry.utils.deepClone(this.lastKnownDraft.get(actor.id));
+      const before = this.lastKnownDraft.get(actor.id);
+      const base = foundry.utils.deepClone(before);
       overlay(actor, base);
-      return this.apiClient.saveDraft(draftId, base);
+      return this._persistDraft(draftId, before, base);
     };
 
     try {

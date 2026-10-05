@@ -212,6 +212,173 @@ describe('SyncManager._executeActorUpdate — If-Match / 409 (FDD-35)', () => {
   });
 });
 
+describe('SyncManager — escrita parcial por PATCH (FDD-78)', () => {
+  function syncedSetup(apiClient) {
+    const actor = makeActor();
+    actor.name = 'Lyra';
+    actor.img = '';
+    actor.classes = {};
+    actor.items = [];
+    const manager = new SyncManager(apiClient);
+    // Base já sincronizada: o overlay do Ator em cima dela não muda nada.
+    const synced = {
+      id: 'draft-1',
+      updatedAt: 't0',
+      concept: { name: 'Lyra', heroStatement: 'só do site' },
+      identity: {},
+      description: {},
+      equipment: { armorId: 'cota' },
+      items: [],
+    };
+    manager._overlayActorOntoDraft(actor, synced);
+    manager._overlayItemsOntoDraft(actor, synced);
+    manager.lastKnownDraft.set(actor.id, synced);
+    return { actor, manager, synced };
+  }
+
+  function apiMock(overrides = {}) {
+    return {
+      saveDraft: vi.fn(async (_id, payload) => ({ ...payload, updatedAt: 'tPut' })),
+      patchDraft: vi.fn(async (_id, _patch, ifMatch) => ({ id: 'draft-1', updatedAt: `after-${ifMatch}` })),
+      ...overrides,
+    };
+  }
+
+  it('manda só o HP que mudou, com o updatedAt da base, e não reenvia items', async () => {
+    const api = apiMock();
+    const { actor, manager } = syncedSetup(api);
+    actor.system.attributes.hp.value = 7;
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    expect(api.saveDraft).not.toHaveBeenCalled();
+    expect(api.patchDraft).toHaveBeenCalledTimes(1);
+    const [id, patch, ifMatch] = api.patchDraft.mock.calls[0];
+    expect(id).toBe('draft-1');
+    expect(patch).toEqual({ set: { 'derivedStats.currentHp': 7 } });
+    expect(ifMatch).toBe('t0');
+    expect(manager.lastKnownDraft.get(actor.id).updatedAt).toBe('after-t0');
+  });
+
+  it('não chama a API quando o Ator não mudou nada', async () => {
+    const api = apiMock();
+    const { actor, manager } = syncedSetup(api);
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+    await manager._executeItemUpdate(actor, 'draft-1');
+
+    expect(api.patchDraft).not.toHaveBeenCalled();
+    expect(api.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it('no 409 troca a base pelo current, recalcula o patch e preserva o que o site mudou', async () => {
+    const conflict = Object.assign(new Error('conflito'), {
+      status: 409,
+      current: { id: 'draft-1', updatedAt: 't5', concept: { name: 'Lyra', heroStatement: 'editado no site' }, identity: {}, description: {}, equipment: { armorId: 'cota' }, items: [] },
+    });
+    const api = apiMock();
+    api.patchDraft = vi
+      .fn()
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ id: 'draft-1', updatedAt: 't6' });
+    const { actor, manager } = syncedSetup(api);
+    actor.system.attributes.hp.value = 3;
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    expect(api.patchDraft).toHaveBeenCalledTimes(2);
+    const retry = api.patchDraft.mock.calls[1];
+    expect(retry[2]).toBe('t5');
+    // O current não tem nenhum dos campos do overlay (traits, foundryIdentity...),
+    // então o patch do retry leva mais que o HP — e ainda assim nunca o heroStatement.
+    expect(retry[1].set['derivedStats.currentHp']).toBe(3);
+    expect(JSON.stringify(retry[1])).not.toContain('heroStatement');
+    expect(manager.lastKnownDraft.get(actor.id).updatedAt).toBe('t6');
+    expect(api.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it('item novo no Ator vira upsert por _id', async () => {
+    const api = apiMock();
+    const { actor, manager } = syncedSetup(api);
+    actor.items = [
+      {
+        id: 'it1',
+        name: 'Corda',
+        type: 'loot',
+        img: '',
+        getFlag: () => undefined,
+        toObject: () => ({ _id: 'it1', name: 'Corda', type: 'loot', img: '', system: {} }),
+      },
+    ];
+
+    await manager._executeItemUpdate(actor, 'draft-1');
+
+    const patch = api.patchDraft.mock.calls[0][1];
+    expect(patch.lists.items.upsert.map((i) => i._id)).toEqual(['it1']);
+    expect(patch.lists.items.remove).toEqual([]);
+    expect(api.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it('API antiga (404 genérico): cai no PUT e não tenta PATCH de novo', async () => {
+    const oldApi = Object.assign(new Error('HTTP 404'), { status: 404 });
+    const api = apiMock({ patchDraft: vi.fn().mockRejectedValue(oldApi) });
+    const { actor, manager } = syncedSetup(api);
+    actor.system.attributes.hp.value = 7;
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+    actor.system.attributes.hp.value = 6;
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    expect(api.patchDraft).toHaveBeenCalledTimes(1);
+    expect(api.saveDraft).toHaveBeenCalledTimes(2);
+    expect(api.saveDraft.mock.calls[0][1].derivedStats.currentHp).toBe(7);
+  });
+
+  it('ficha apagada (404 DRAFT_NOT_FOUND) não é recriada por PUT', async () => {
+    const gone = Object.assign(new Error('Ficha não encontrada.'), { status: 404, code: 'DRAFT_NOT_FOUND' });
+    const api = apiMock({ patchDraft: vi.fn().mockRejectedValue(gone) });
+    const { actor, manager } = syncedSetup(api);
+    actor.system.attributes.hp.value = 7;
+
+    await expect(manager._executeActorUpdate(actor, 'draft-1')).rejects.toMatchObject({ status: 404 });
+    expect(api.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it('patch recusado (400) cai no PUT inteiro', async () => {
+    const refused = Object.assign(new Error('caminho não permitido'), { status: 400 });
+    const api = apiMock({ patchDraft: vi.fn().mockRejectedValue(refused) });
+    const { actor, manager } = syncedSetup(api);
+    actor.system.attributes.hp.value = 7;
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    expect(api.saveDraft).toHaveBeenCalledTimes(1);
+    expect(api.saveDraft.mock.calls[0][1].derivedStats.currentHp).toBe(7);
+  });
+
+  it('mudança fora da allowlist vai por PUT sem tentar PATCH', async () => {
+    const api = apiMock();
+    const { actor, manager } = syncedSetup(api);
+    manager.lastKnownDraft.get(actor.id).description = undefined; // overlay recria description {}: diff fora da allowlist
+    actor.system.attributes.hp.value = 7;
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    expect(api.patchDraft).not.toHaveBeenCalled();
+    expect(api.saveDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('401/403/500 não viram PUT: sobem para o aviso de erro', async () => {
+    for (const status of [401, 403, 500]) {
+      const api = apiMock({ patchDraft: vi.fn().mockRejectedValue(Object.assign(new Error('x'), { status })) });
+      const { actor, manager } = syncedSetup(api);
+      actor.system.attributes.hp.value = 7;
+      await expect(manager._executeActorUpdate(actor, 'draft-1')).rejects.toMatchObject({ status });
+      expect(api.saveDraft).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe('SyncManager — PUTs do mesmo Ator em fila (FDD-36)', () => {
   function makeSyncActor() {
     const actor = makeActor();
