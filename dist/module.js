@@ -1324,10 +1324,11 @@ var it, at = e((() => {
 			n && (X(e, n) || this.debouncedActorUpdate(e, n));
 		}
 		_overlayActorOntoDraft(e, t) {
-			for (let [n, r] of Object.entries(N)) {
-				if (n.startsWith("system.abilities")) continue;
-				let i = foundry.utils.getProperty(e, n);
-				i !== void 0 && foundry.utils.setProperty(t, r, i);
+			let n = !(foundry.utils.getProperty(e, "system.attributes.hp.max") > 0);
+			for (let [r, i] of Object.entries(N)) {
+				if (r.startsWith("system.abilities") || n && r.startsWith("system.attributes.hp.")) continue;
+				let a = foundry.utils.getProperty(e, r);
+				a !== void 0 && foundry.utils.setProperty(t, i, a);
 			}
 			L.forEach(({ foundry: n, firebase: r }) => {
 				let i = e.system.abilities?.[n]?.value;
@@ -1341,19 +1342,19 @@ var it, at = e((() => {
 				let i = e.system.skills?.[n]?.value;
 				i !== void 0 && foundry.utils.setProperty(t, `proficiencies.skills.${r}`, xe(i));
 			});
-			let n = e.system.attributes?.spellcasting;
-			if (n) {
-				let e = L.find(({ foundry: e }) => e === n);
+			let r = e.system.attributes?.spellcasting;
+			if (r) {
+				let e = L.find(({ foundry: e }) => e === r);
 				e && foundry.utils.setProperty(t, "spellcasting.ability", e.firebase);
 			}
 			foundry.utils.setProperty(t, "concept.portraitUrl", Ze(e.img)), t.conditions = nt(e), t.effects = rt(e), t.traits = ve(e), t.foundryIdentity = j(e);
-			let r = be(e);
+			let i = be(e);
 			t.identity = {
 				...t.identity ?? {},
-				...r.identity
+				...i.identity
 			}, t.description = {
 				...t.description ?? {},
-				...r.description
+				...i.description
 			};
 		}
 		_overlayItemsOntoDraft(e, t) {
