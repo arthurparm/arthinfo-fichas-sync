@@ -1247,13 +1247,13 @@ var it, at = e((() => {
 			t && (t.close(), this.streams.delete(e.id)), this.lastKnownDraft.delete(e.id);
 		}
 		async _applyRemoteDraft(e, t) {
-			let n = {}, r = !(foundry.utils.getProperty(t, "derivedStats.maxHp") > 0);
-			for (let [i, a] of Object.entries(N)) {
-				if (i.startsWith("system.abilities") || P.has(i) || r && i.startsWith("system.attributes.hp.")) continue;
+			let n = {}, r = foundry.utils.getProperty(t, "derivedStats.maxHp"), i = typeof r == "number" && r <= 0;
+			for (let [r, a] of Object.entries(N)) {
+				if (r.startsWith("system.abilities") || P.has(r) || i && r.startsWith("system.attributes.hp.")) continue;
 				let o = foundry.utils.getProperty(t, a);
-				if (F.has(i) && (typeof o != "string" || !o.trim())) continue;
-				let s = foundry.utils.getProperty(e, i);
-				o != null && o !== s && (n[i] = o);
+				if (F.has(r) && (typeof o != "string" || !o.trim())) continue;
+				let s = foundry.utils.getProperty(e, r);
+				o != null && o !== s && (n[r] = o);
 			}
 			if (L.forEach(({ foundry: r, firebase: i }) => {
 				let a = e.system.abilities?.[r]?.value || 0, o = (foundry.utils.getProperty(t, `attributes.scores.${i}`) || 10) + (foundry.utils.getProperty(t, `attributes.originBonuses.${i}`) || 0);

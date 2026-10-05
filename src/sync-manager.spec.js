@@ -75,6 +75,17 @@ describe('SyncManager._applyRemoteDraft — hp.max é Foundry -> site só (não 
     const updateCall = actor.update.mock.calls[0][0];
     expect(updateCall).not.toHaveProperty('system.attributes.hp.max');
   });
+
+  it('não zera o Ator com o hp.value de um rascunho cujo maxHp é 0 (FDD-90)', async () => {
+    const actor = makeActor();
+    const manager = new SyncManager({});
+
+    await manager._applyRemoteDraft(actor, { derivedStats: { maxHp: 0, currentHp: 0 } });
+
+    for (const call of actor.update.mock.calls) {
+      expect(call[0]).not.toHaveProperty('system.attributes.hp.value');
+    }
+  });
 });
 
 describe('SyncManager._applyRemoteDraft — deslocamento é Foundry -> site só (FDD-47)', () => {
