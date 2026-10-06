@@ -52,11 +52,8 @@ export function buildHitPointsUpdate(itemData, newId) {
   return { [`system.advancement.${id}`]: entry };
 }
 
-// Repara todas as classes do Ator e, se o Ator estava sem PV nenhum, começa
-// cheio (um personagem recém-criado não nasce com 0 de vida).
+// Repara todas as classes do Ator. Devolve quantas foram reparadas.
 export async function repairClassHitPoints(actor) {
-  const hpBefore = actor.system?.attributes?.hp;
-  const hadNoHp = !(Number(hpBefore?.max) > 0);
   let repaired = 0;
 
   for (const item of actor.items?.contents ?? actor.items ?? []) {
@@ -66,12 +63,20 @@ export async function repairClassHitPoints(actor) {
     await item.update(update);
     repaired += 1;
   }
-
-  if (repaired > 0 && hadNoHp) {
-    const hp = actor.system?.attributes?.hp;
-    if (Number(hp?.max) > 0 && !(Number(hp?.value) > 0)) {
-      await actor.update({ 'system.attributes.hp.value': hp.max });
-    }
-  }
   return repaired;
+}
+
+export function actorHasNoMaxHp(actor) {
+  return !(Number(actor?.system?.attributes?.hp?.max) > 0);
+}
+
+// Ator que ganhou PV máximo agora (classe criada ou reparada) começa com a vida
+// cheia: um personagem recém-criado não nasce caído (0/máx). Quem já tinha PV
+// máximo antes, ou já tem vida atual, não é curado.
+export async function startAtFullHitPoints(actor, hadNoMaxHp) {
+  if (!hadNoMaxHp) return false;
+  const hp = actor.system?.attributes?.hp;
+  if (!(Number(hp?.max) > 0) || Number(hp?.value) > 0) return false;
+  await actor.update({ 'system.attributes.hp.value': hp.max });
+  return true;
 }
