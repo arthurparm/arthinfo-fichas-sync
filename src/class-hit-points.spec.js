@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildHitPointsUpdate, findHitPoints, repairClassHitPoints } from './class-hit-points.js';
+import {
+  actorHasNoMaxHp,
+  buildHitPointsUpdate,
+  findHitPoints,
+  repairClassHitPoints,
+  startAtFullHitPoints,
+} from './class-hit-points.js';
 
 beforeEach(() => {
   global.foundry = { utils: { randomID: vi.fn(() => 'newId0000000000a') } };
@@ -69,10 +75,10 @@ describe('findHitPoints', () => {
 });
 
 describe('repairClassHitPoints', () => {
-  function makeActor({ max, value }) {
+  function makeActor({ max = 0, value = 0, classData = wizard(undefined) } = {}) {
     const classItem = {
       type: 'class',
-      toObject: () => wizard(undefined),
+      toObject: () => classData,
       update: vi.fn(async () => {
         // O dnd5e recalcula hp.max assim que o avanço entra.
         actor.system.attributes.hp.max = 7;
@@ -86,37 +92,62 @@ describe('repairClassHitPoints', () => {
     return { actor, classItem };
   }
 
-  it('Ator sem PV: grava o avanço na classe e começa com a vida cheia', async () => {
-    const { actor, classItem } = makeActor({ max: 0, value: 0 });
+  it('grava o avanço de PV na classe sem avanço e só nela', async () => {
+    const { actor, classItem } = makeActor();
 
     expect(await repairClassHitPoints(actor)).toBe(1);
 
     expect(classItem.update).toHaveBeenCalledOnce();
-    expect(actor.update).toHaveBeenCalledWith({ 'system.attributes.hp.value': 7 });
-  });
-
-  it('Ator que já tem PV atual: conserta o máximo mas não mexe na vida atual', async () => {
-    const { actor } = makeActor({ max: 0, value: 3 });
-
-    await repairClassHitPoints(actor);
-
-    expect(actor.update).not.toHaveBeenCalled();
-  });
-
-  it('Ator que já tinha PV máximo não é curado', async () => {
-    const { actor } = makeActor({ max: 12, value: 0 });
-
-    await repairClassHitPoints(actor);
-
     expect(actor.update).not.toHaveBeenCalled();
   });
 
   it('classe já correta: não faz nada', async () => {
-    const { actor, classItem } = makeActor({ max: 7, value: 7 });
-    classItem.toObject = () => wizard({ hp1: { type: 'HitPoints', value: { 1: 'max' } } });
+    const { actor, classItem } = makeActor({
+      max: 7,
+      value: 7,
+      classData: wizard({ hp1: { type: 'HitPoints', value: { 1: 'max' } } }),
+    });
 
     expect(await repairClassHitPoints(actor)).toBe(0);
     expect(classItem.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('startAtFullHitPoints', () => {
+  const actorWith = (max, value) => ({
+    system: { attributes: { hp: { max, value } } },
+    update: vi.fn(async () => undefined),
+  });
+
+  it('Ator que ganhou PV máximo agora (e estava sem vida) começa cheio', async () => {
+    const actor = actorWith(5, 0);
+    expect(await startAtFullHitPoints(actor, true)).toBe(true);
+    expect(actor.update).toHaveBeenCalledWith({ 'system.attributes.hp.value': 5 });
+  });
+
+  it('Ator que já tinha PV máximo antes não é curado', async () => {
+    const actor = actorWith(12, 0);
+    expect(await startAtFullHitPoints(actor, false)).toBe(false);
     expect(actor.update).not.toHaveBeenCalled();
+  });
+
+  it('quem já tem vida atual não é mexido', async () => {
+    const actor = actorWith(5, 3);
+    expect(await startAtFullHitPoints(actor, true)).toBe(false);
+    expect(actor.update).not.toHaveBeenCalled();
+  });
+
+  it('continua sem PV máximo: não escreve nada', async () => {
+    const actor = actorWith(0, 0);
+    expect(await startAtFullHitPoints(actor, true)).toBe(false);
+    expect(actor.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('actorHasNoMaxHp', () => {
+  it('detecta Ator sem PV máximo', () => {
+    expect(actorHasNoMaxHp({ system: { attributes: { hp: { max: 0 } } } })).toBe(true);
+    expect(actorHasNoMaxHp({ system: { attributes: { hp: { max: 7 } } } })).toBe(false);
+    expect(actorHasNoMaxHp({})).toBe(true);
   });
 });
