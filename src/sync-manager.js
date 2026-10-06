@@ -21,6 +21,7 @@ import { applyItemCast } from './apply-item-cast.js';
 import { applyRest } from './apply-rest.js';
 import { applySpellSlot } from './apply-spell-slot.js';
 import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
+import { repairClassHitPoints } from './class-hit-points.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
 function debounce(func, wait) {
@@ -30,6 +31,8 @@ function debounce(func, wait) {
     timeout = setTimeout(() => func.apply(this, args), wait);
   };
 }
+
+const KEEP_LOCAL_ADVANCEMENT_TYPES = new Set(['class', 'subclass', 'race', 'background']);
 
 // Limpa metadados do Foundry para evitar falsos positivos no diffing
 function cleanItemData(itemData) {
@@ -368,6 +371,12 @@ export class SyncManager {
           // Atualização de item existente
           const lItemClean = cleanItemData(lItem.toObject());
           const rItemClean = cleanItemData(sanitizedRemoteItem);
+          // O avanço de classe/raça/antecedente é do Foundry: o site só manda o de PV
+          // na criação. Comparar ou reescrever aqui apagaria o avanço real do Ator.
+          if (KEEP_LOCAL_ADVANCEMENT_TYPES.has(lItemClean.type)) {
+            if (lItemClean.system) delete lItemClean.system.advancement;
+            if (rItemClean.system) delete rItemClean.system.advancement;
+          }
 
           // Iguala os IDs temporariamente para a comparação de diff não falhar por isso
           rItemClean._id = lItemClean._id;
@@ -380,6 +389,9 @@ export class SyncManager {
           if (JSON.stringify(lItemClean) !== JSON.stringify(rItemClean)) {
             const updatePayload = sanitizedRemoteItem;
             updatePayload._id = lItem.id; // Usa o ID local do Foundry
+            if (KEEP_LOCAL_ADVANCEMENT_TYPES.has(lItemClean.type) && updatePayload.system) {
+              delete updatePayload.system.advancement;
+            }
             foundry.utils.setProperty(updatePayload, `flags.${MODULE_ID}.sourceId`, rItem._id);
             toUpdate.push(updatePayload);
           }
@@ -402,6 +414,14 @@ export class SyncManager {
       if (toDelete.length > 0) await actor.deleteEmbeddedDocuments("Item", toDelete);
       if (toCreate.length > 0) await actor.createEmbeddedDocuments("Item", toCreate);
       if (toUpdate.length > 0) await actor.updateEmbeddedDocuments("Item", toUpdate);
+    }
+
+    // 3b. Classe sem avanço de PV (Ator criado por versão antiga do builder):
+    // sem isso hp.max fica 0 e o personagem aparece caído.
+    try {
+      await repairClassHitPoints(actor);
+    } catch (error) {
+      console.warn('Arthinfo Fichas | Não foi possível reparar o PV da classe:', error);
     }
 
     // 4. Equipar itens reais do compêndio local, quando o equipamento do
