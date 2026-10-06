@@ -21,7 +21,7 @@ import { applyItemCast } from './apply-item-cast.js';
 import { applyRest } from './apply-rest.js';
 import { applySpellSlot } from './apply-spell-slot.js';
 import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
-import { repairClassHitPoints } from './class-hit-points.js';
+import { actorHasNoMaxHp, repairClassHitPoints, startAtFullHitPoints } from './class-hit-points.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
 function debounce(func, wait) {
@@ -287,6 +287,9 @@ export class SyncManager {
 
   async _applyRemoteDraft(actor, data) {
     const updateData = {};
+    // Antes de criar/atualizar itens: se o Ator ainda não tem PV máximo, quem
+    // der PV a ele (classe nova ou reparada) também o deixa com a vida cheia.
+    const hadNoMaxHp = actorHasNoMaxHp(actor);
     const remoteMaxHp = foundry.utils.getProperty(data, 'derivedStats.maxHp');
     const siteHasNoHp = typeof remoteMaxHp === 'number' && remoteMaxHp <= 0;
 
@@ -422,6 +425,11 @@ export class SyncManager {
       await repairClassHitPoints(actor);
     } catch (error) {
       console.warn('Arthinfo Fichas | Não foi possível reparar o PV da classe:', error);
+    }
+    try {
+      await startAtFullHitPoints(actor, hadNoMaxHp);
+    } catch (error) {
+      console.warn('Arthinfo Fichas | Não foi possível encher o PV do Ator:', error);
     }
 
     // 4. Equipar itens reais do compêndio local, quando o equipamento do
