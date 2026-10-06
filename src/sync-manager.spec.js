@@ -589,3 +589,66 @@ describe('SyncManager.startListening — evento item-cast', () => {
     expect(manager._applyRemoteDraft).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('SyncManager._applyRemoteDraft — avanço de classe é do Foundry', () => {
+  function actorWithClass(localAdvancement) {
+    const actor = makeActor();
+    const classItem = {
+      id: 'local-class',
+      type: 'class',
+      getFlag: (scope, key) => (key === 'sourceId' ? 'site-class' : undefined),
+      toObject: () => ({
+        _id: 'local-class',
+        name: 'Mago',
+        type: 'class',
+        img: 'icons/mago.webp',
+        system: { levels: 1, advancement: localAdvancement },
+      }),
+      update: vi.fn(async () => undefined),
+    };
+    actor.items = { contents: [classItem] };
+    actor.createEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    return { actor, classItem };
+  }
+
+  const remoteClass = (overrides = {}) => ({
+    _id: 'site-class',
+    name: 'Mago',
+    type: 'class',
+    img: 'icons/mago.webp',
+    system: {
+      levels: 1,
+      advancement: { hp1: { _id: 'hp1', type: 'HitPoints', value: { 1: 'max' } } },
+    },
+    ...overrides,
+  });
+
+  it('só o avanço diferente não gera update (o site manda apenas o de PV)', async () => {
+    const { actor } = actorWithClass({
+      hp1: { _id: 'hp1', type: 'HitPoints', value: { 1: 'max' } },
+      asi: { _id: 'asi', type: 'AbilityScoreImprovement' },
+    });
+
+    await new SyncManager({})._applyRemoteDraft(actor, { items: [remoteClass()] });
+
+    expect(actor.updateEmbeddedDocuments).not.toHaveBeenCalled();
+  });
+
+  it('quando a classe muda de verdade, o update não carrega o avanço (não apaga o real do Ator)', async () => {
+    const { actor } = actorWithClass({
+      hp1: { _id: 'hp1', type: 'HitPoints', value: { 1: 'max' } },
+      asi: { _id: 'asi', type: 'AbilityScoreImprovement' },
+    });
+
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      items: [remoteClass({ system: { levels: 2, advancement: { hp1: { type: 'HitPoints' } } } })],
+    });
+
+    expect(actor.updateEmbeddedDocuments).toHaveBeenCalledOnce();
+    const [, payload] = actor.updateEmbeddedDocuments.mock.calls[0];
+    expect(payload[0].system.levels).toBe(2);
+    expect(payload[0].system).not.toHaveProperty('advancement');
+  });
+});
