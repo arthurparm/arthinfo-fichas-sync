@@ -266,7 +266,8 @@ export class CompendiumSyncDialog {
       <style>${COMPENDIUM_SYNC_STYLES}</style>
       <form class="rs-compendium-sync">
         <p>Escolha os compêndios de itens a sincronizar (ex: um compêndio próprio,
-        curado com os itens liberados na sua mesa):</p>
+        curado com os itens liberados na sua mesa). Inclua o das <strong>classes</strong>: sem ele
+        o builder do site continua no SRD. Depois confira o total na página da mesa, no site.</p>
         <div style="max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; column-count: 1; column-width: auto;">`;
 
     for (const group of groups) {
