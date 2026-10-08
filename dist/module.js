@@ -1610,7 +1610,7 @@ function Q(e) {
 async function bt(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
-	for (let n of Ct) try {
+	for (let n of wt) try {
 		let r = yt(e, n);
 		if (Q(r)) continue;
 		let i = e.settings.get(s, n);
@@ -1622,6 +1622,21 @@ async function bt(e) {
 	return t;
 }
 async function xt(e) {
+	if (!e.user?.isGM) return 0;
+	let t = e.settings?.storage?.get?.("world"), n = 0;
+	for (let e of [s, c]) {
+		let r = `${e}.compendiumSyncKey`;
+		try {
+			let e = t?.getSetting?.(r) ?? t?.find?.((e) => e.key === r);
+			if (!e) continue;
+			await e.delete(), n += 1;
+		} catch (e) {
+			console.warn(`Arthinfo Fichas | Não consegui apagar a chave de compêndio antiga (${r}).`, e);
+		}
+	}
+	return n;
+}
+async function St(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
 	for (let n of e.actors ?? []) {
@@ -1635,21 +1650,22 @@ async function xt(e) {
 	}
 	return t;
 }
-async function St(e) {
-	let t = await bt(e), n = await xt(e);
+async function Ct(e) {
+	await xt(e);
+	let t = await bt(e), n = await St(e);
 	return (t || n) && console.log(`Arthinfo Fichas | Migração do módulo antigo: ${n} vínculo(s) de ficha e ${t} configuração(ões).`), {
 		settings: t,
 		links: n
 	};
 }
-var Ct, $, wt = e((() => {
-	l(), Ct = [
+var wt, $, Tt = e((() => {
+	l(), wt = [
 		"mesaKey",
 		"backendUrl",
 		"compendiumSyncSelection"
 	], $ = { backendUrl: "https://api.runarcana.org" };
-})), Tt = /* @__PURE__ */ t((() => {
-	i(), h(), de(), _e(), _t(), wt(), l();
+})), Et = /* @__PURE__ */ t((() => {
+	i(), h(), de(), _e(), _t(), Tt(), l();
 	var e = null, t = null;
 	function n(e) {
 		let t = game.settings.get(s, e);
@@ -1740,7 +1756,7 @@ var Ct, $, wt = e((() => {
 		});
 	}), Hooks.once("ready", async () => {
 		let i = game.modules.get(s);
-		i && (i.api = { openCompendiumSync: c }), await St(game);
+		i && (i.api = { openCompendiumSync: c }), await Ct(game);
 		let a = n("mesaKey"), o = n("backendUrl");
 		if (!a) {
 			console.warn("Arthinfo Fichas | Chave da mesa não configurada nas configurações do módulo.");
@@ -1817,4 +1833,4 @@ var Ct, $, wt = e((() => {
 	});
 }));
 //#endregion
-export default Tt();
+export default Et();

@@ -61,6 +61,28 @@ export async function migrateLegacySettings(game) {
   return migrated;
 }
 
+// A chave global de compêndio (COMPENDIUM_SYNC_KEY) não existe mais (FDD-74),
+// mas mundos antigos ainda guardam o segredo em texto no banco de configurações.
+// Apaga a linha, tanto do id novo quanto do id legado, pra não sobrar segredo
+// parado no mundo.
+export async function purgeStoredCompendiumSyncKey(game) {
+  if (!game.user?.isGM) return 0;
+  const store = game.settings?.storage?.get?.('world');
+  let purged = 0;
+  for (const moduleId of [MODULE_ID, LEGACY_MODULE_ID]) {
+    const fullKey = `${moduleId}.compendiumSyncKey`;
+    try {
+      const doc = store?.getSetting?.(fullKey) ?? store?.find?.((setting) => setting.key === fullKey);
+      if (!doc) continue;
+      await doc.delete();
+      purged += 1;
+    } catch (error) {
+      console.warn(`Arthinfo Fichas | Não consegui apagar a chave de compêndio antiga (${fullKey}).`, error);
+    }
+  }
+  return purged;
+}
+
 export async function migrateLegacyActorLinks(game) {
   if (!game.user?.isGM) return 0;
   let migrated = 0;
@@ -81,6 +103,7 @@ export async function migrateLegacyActorLinks(game) {
 }
 
 export async function runLegacyMigration(game) {
+  await purgeStoredCompendiumSyncKey(game);
   const settings = await migrateLegacySettings(game);
   const links = await migrateLegacyActorLinks(game);
   if (settings || links) {
