@@ -22,30 +22,44 @@ export function findHitPoints(raw) {
   return found ? { id: found[0], entry: found[1] } : null;
 }
 
-// Devolve o `update` do item que deixa o nível 1 no máximo, ou null se já está.
+// Valor de PV que falta em cada nível da classe: nível 1 no máximo, os demais na
+// média (o que o site manda ao criar a ficha em nível 2+).
+function missingLevels(existingValue, levels) {
+  const missing = {};
+  for (let level = 1; level <= levels; level += 1) {
+    if (existingValue?.[level] === undefined) missing[level] = level === 1 ? 'max' : 'avg';
+  }
+  return missing;
+}
+
+// Devolve o `update` do item que deixa todos os níveis com PV, ou null se já estão.
 export function buildHitPointsUpdate(itemData, newId) {
   if (!itemData || itemData.type !== 'class') return null;
-  if (!(Number(itemData.system?.levels) >= 1)) return null;
+  const levels = Number(itemData.system?.levels);
+  if (!(levels >= 1)) return null;
 
   const raw = itemData.system?.advancement;
   const existing = findHitPoints(raw);
-  if (existing && existing.entry?.value?.[1] !== undefined) return null;
+  const missing = missingLevels(existing?.entry?.value, levels);
+  if (existing && Object.keys(missing).length === 0) return null;
 
   if (existing) {
     if (Array.isArray(raw)) {
       return {
         'system.advancement': raw.map((entry) =>
           entry?._id === existing.entry._id || entry === existing.entry
-            ? { ...entry, value: { ...(entry.value ?? {}), 1: 'max' } }
+            ? { ...entry, value: { ...(entry.value ?? {}), ...missing } }
             : entry,
         ),
       };
     }
-    return { [`system.advancement.${existing.id}.value.1`]: 'max' };
+    return Object.fromEntries(
+      Object.entries(missing).map(([level, value]) => [`system.advancement.${existing.id}.value.${level}`, value]),
+    );
   }
 
   const id = newId();
-  const entry = { _id: id, type: HIT_POINTS, configuration: {}, value: { 1: 'max' }, flags: {}, hint: '' };
+  const entry = { _id: id, type: HIT_POINTS, configuration: {}, value: missing, flags: {}, hint: '' };
   if (Array.isArray(raw)) {
     return { 'system.advancement': [...raw, entry] };
   }
