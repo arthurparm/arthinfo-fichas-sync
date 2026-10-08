@@ -41,7 +41,8 @@ migração de flags/configurações de mundos que já usavam o módulo antigo. E
   draft em si).
 - `src/api-client.js` — chamadas HTTP pro `arthinfo-fichas-api`.
 - `src/compendium-sync.js` / `compendium-sync-dialog.js` — sincronização
-  de itens do compêndio (usa `COMPENDIUM_SYNC_KEY`, não token de usuário).
+  de itens do compêndio (usa a chave da mesa, nunca `COMPENDIUM_SYNC_KEY` — FDD-74; o diálogo
+  também tem "Limpar compêndio", que apaga só o compêndio da mesa).
 - `src/index.js` — hooks do Foundry (`Hooks.on(...)`), ponto de entrada.
 
 Login Firebase é no site, não neste módulo. Não reintroduzir cliente

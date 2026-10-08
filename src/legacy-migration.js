@@ -12,7 +12,7 @@
 // (catalogKey) — atualizar todos geraria uma enxurrada de updateItem.
 import { LEGACY_MODULE_ID, MODULE_ID } from './module-id.js';
 
-const SETTING_KEYS = ['mesaKey', 'compendiumSyncKey', 'backendUrl', 'compendiumSyncSelection'];
+const SETTING_KEYS = ['mesaKey', 'backendUrl', 'compendiumSyncSelection'];
 
 function parseStored(value) {
   if (typeof value !== 'string') return value;

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { groupPacksBySource, hasCompendiumPublishAck, resolvePackGroup } from './compendium-sync-dialog.js';
+import { countClearTargets, groupPacksBySource, hasCompendiumPublishAck, resolvePackGroup } from './compendium-sync-dialog.js';
 
 function makePack(label, packageType, packageName, extra = {}) {
   return { collection: `${packageName}.${label}`, metadata: { label, packageType, packageName, ...extra } };
@@ -83,5 +83,29 @@ describe('hasCompendiumPublishAck (FDD-26)', () => {
     expect(hasCompendiumPublishAck(root)).toBe(true);
     expect(hasCompendiumPublishAck({ querySelector: () => null })).toBe(false);
     expect(hasCompendiumPublishAck(undefined)).toBe(false);
+  });
+});
+
+describe('countClearTargets (FDD-74)', () => {
+  const summary = {
+    total: 6,
+    packs: [
+      { packId: 'world.a', count: 4 },
+      { packId: 'world.b', count: 2 },
+    ],
+  };
+
+  it('sem pack, conta tudo da mesa', () => {
+    expect(countClearTargets(summary)).toBe(6);
+  });
+
+  it('com pack, conta só ele; pack desconhecido conta 0', () => {
+    expect(countClearTargets(summary, 'world.b')).toBe(2);
+    expect(countClearTargets(summary, 'world.x')).toBe(0);
+  });
+
+  it('resposta vazia ou malformada não quebra', () => {
+    expect(countClearTargets({})).toBe(0);
+    expect(countClearTargets(null, 'world.a')).toBe(0);
   });
 });
