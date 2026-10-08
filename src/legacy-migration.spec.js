@@ -3,6 +3,7 @@ import { LEGACY_MODULE_ID, MODULE_ID } from './module-id.js';
 import {
   migrateLegacyActorLinks,
   migrateLegacySettings,
+  purgeStoredCompendiumSyncKey,
   runLegacyMigration,
 } from './legacy-migration.js';
 
@@ -127,5 +128,41 @@ describe('runLegacyMigration', () => {
     });
     expect(await runLegacyMigration(game)).toEqual({ settings: 1, links: 1 });
     log.mockRestore();
+  });
+});
+
+describe('purgeStoredCompendiumSyncKey (FDD-74)', () => {
+  function makeStoreGame({ isGM = true, keys = [] } = {}) {
+    const docs = new Map(keys.map((key) => [key, { key, value: 'segredo', delete: vi.fn(async () => {}) }]));
+    return {
+      docs,
+      game: {
+        user: { isGM },
+        settings: { storage: { get: vi.fn(() => ({ getSetting: (key) => docs.get(key) })) } },
+      },
+    };
+  }
+
+  it('apaga a chave do id novo e do id legado', async () => {
+    const { game, docs } = makeStoreGame({
+      keys: [`${MODULE_ID}.compendiumSyncKey`, `${LEGACY_MODULE_ID}.compendiumSyncKey`],
+    });
+    expect(await purgeStoredCompendiumSyncKey(game)).toBe(2);
+    for (const doc of docs.values()) expect(doc.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem chave guardada, não faz nada; só o GM apaga', async () => {
+    expect(await purgeStoredCompendiumSyncKey(makeStoreGame().game)).toBe(0);
+    const { game, docs } = makeStoreGame({ isGM: false, keys: [`${MODULE_ID}.compendiumSyncKey`] });
+    expect(await purgeStoredCompendiumSyncKey(game)).toBe(0);
+    expect([...docs.values()][0].delete).not.toHaveBeenCalled();
+  });
+
+  it('falha ao apagar uma não impede a outra', async () => {
+    const { game, docs } = makeStoreGame({
+      keys: [`${MODULE_ID}.compendiumSyncKey`, `${LEGACY_MODULE_ID}.compendiumSyncKey`],
+    });
+    [...docs.values()][0].delete.mockRejectedValueOnce(new Error('sem permissão'));
+    expect(await purgeStoredCompendiumSyncKey(game)).toBe(1);
   });
 });

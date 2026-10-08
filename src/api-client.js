@@ -11,12 +11,9 @@ function apiError(message, status) {
 }
 
 export class ArthinfoApiClient {
-  constructor({ mesaKey, baseUrl, syncKey } = {}) {
+  constructor({ mesaKey, baseUrl } = {}) {
     this.mesaKey = typeof mesaKey === 'string' ? mesaKey.trim() : '';
     this.baseUrl = String(baseUrl || '').replace(/\/+$/, '');
-    // Instalações antigas ainda podem ter COMPENDIUM_SYNC_KEY; enviado só
-    // no PUT de compêndio, como X-Sync-Key extra por uma versão.
-    this.syncKey = typeof syncKey === 'string' ? syncKey.trim() : '';
     // Identifica esta sessão do módulo pra ignorar o próprio eco quando o
     // stream SSE devolver uma mudança que este mesmo cliente acabou de enviar.
     this.clientId = foundry.utils.randomID();
@@ -55,30 +52,48 @@ export class ArthinfoApiClient {
   }
 
   /**
-   * Envia um lote de itens de compêndio pro backend (FDD-16). X-Sync-Key
-   * (COMPENDIUM_SYNC_KEY) escreve no catálogo compartilhado do site; sem ela,
-   * a chave da mesa escreve só no homebrew daquela mesa. Manda as duas quando
-   * as duas estiverem configuradas — o backend prioriza X-Sync-Key, mantendo
-   * o comportamento de instalações antigas.
+   * Envia um lote de itens de compêndio pro backend (FDD-16, FDD-74). Sempre
+   * com a chave da mesa: os itens ficam no compêndio da mesa, atribuídos ao
+   * mestre dela. O módulo não escreve mais no catálogo público (SRD).
    */
   async putCompendiumItemsBatch(items) {
-    if (!this.syncKey && !this.mesaKey) {
-      throw new Error('Configure a chave de sincronização de compêndio ou a chave da mesa.');
-    }
-    const headers = { 'Content-Type': 'application/json' };
-    if (this.mesaKey) {
-      headers['X-Mesa-Key'] = this.mesaKey;
-    }
-    if (this.syncKey) {
-      headers['X-Sync-Key'] = this.syncKey;
+    if (!this.mesaKey) {
+      throw new Error('Chave da mesa não configurada.');
     }
     const res = await fetch(`${this.baseUrl}/api/compendium/items`, {
       method: 'PUT',
-      headers,
+      headers: this._headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ items }),
     });
     if (!res.ok) {
       throw new Error(`Falha ao sincronizar itens de compêndio (HTTP ${res.status}).`);
+    }
+    return res.json();
+  }
+
+  /** O que a mesa disponibilizou: { total, packs: [{ packId, count }] } (FDD-74). */
+  async getMyCompendium() {
+    const res = await fetch(`${this.baseUrl}/api/compendium/mine`, {
+      headers: this._headers(),
+    });
+    if (!res.ok) {
+      throw apiError(`Falha ao consultar o compêndio da mesa (HTTP ${res.status}).`, res.status);
+    }
+    return res.json();
+  }
+
+  /**
+   * Limpa o compêndio da mesa (FDD-74); `packId` limita a um pack. Irreversível:
+   * só volta com nova sincronização. Nunca toca no catálogo público.
+   */
+  async clearMyCompendium(packId) {
+    const query = packId ? `?packId=${encodeURIComponent(packId)}` : '';
+    const res = await fetch(`${this.baseUrl}/api/compendium/items${query}`, {
+      method: 'DELETE',
+      headers: this._headers(),
+    });
+    if (!res.ok) {
+      throw apiError(`Falha ao limpar o compêndio da mesa (HTTP ${res.status}).`, res.status);
     }
     return res.json();
   }

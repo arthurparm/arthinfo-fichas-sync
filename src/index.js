@@ -22,12 +22,9 @@ function getStringSetting(key) {
 }
 
 function openCompendiumSyncDialog() {
-  const syncKey = getStringSetting('compendiumSyncKey');
   const mesaKey = getStringSetting('mesaKey');
-  if (!syncKey && !mesaKey) {
-    ui.notifications.warn(
-      'Cole a chave de sincronização de compêndio (catálogo compartilhado) ou a chave da mesa (homebrew da sua mesa) nas configurações do módulo.',
-    );
+  if (!mesaKey) {
+    ui.notifications.warn('Cole a chave da mesa nas configurações do módulo para sincronizar o compêndio.');
     return;
   }
   const backendUrl = getStringSetting('backendUrl');
@@ -38,7 +35,6 @@ function openCompendiumSyncDialog() {
   const client = new ArthinfoApiClient({
     mesaKey,
     baseUrl: backendUrl,
-    syncKey,
   });
   new CompendiumSyncDialog(client).render();
 }
@@ -130,15 +126,6 @@ Hooks.once('init', () => {
     requiresReload: true
   });
 
-  game.settings.register(MODULE_ID, 'compendiumSyncKey', {
-    name: 'Chave de Sincronização de Compêndio',
-    hint: 'Só para enviar itens ao catálogo compartilhado do site (COMPENDIUM_SYNC_KEY). Não é a chave da mesa nem login. Deixe em branco e use só a Chave da mesa (acima) para sincronizar homebrew restrito à sua mesa, em vez do catálogo público.',
-    scope: 'world',
-    config: true,
-    type: String,
-    default: '',
-  });
-
   // Guarda a última seleção de compêndios pro diálogo de sincronização não
   // precisar remarcar tudo toda vez. Não aparece no painel de config.
   game.settings.register(MODULE_ID, 'compendiumSyncSelection', {
@@ -151,7 +138,7 @@ Hooks.once('init', () => {
   game.settings.registerMenu(MODULE_ID, 'compendiumSyncMenu', {
     name: 'Sincronizar Compêndio de Itens',
     label: 'Abrir Sincronização',
-    hint: 'Escolhe quais compêndios de itens do mundo sincronizar com o backend, pra alimentar o seletor de equipamento do site.',
+    hint: 'Escolhe quais compêndios de itens do mundo sincronizar com a sua mesa (usa a Chave da mesa), pra alimentar o seletor de equipamento do site. Também limpa o que você já enviou.',
     icon: 'fas fa-box-open',
     type: CompendiumSyncMenuApp,
     restricted: true
@@ -196,7 +183,6 @@ Hooks.once('ready', async () => {
   apiClient = new ArthinfoApiClient({
     mesaKey,
     baseUrl: backendUrl,
-    syncKey: getStringSetting('compendiumSyncKey'),
   });
   syncManager = new SyncManager(apiClient);
 
