@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { LEGACY_MODULE_ID, MODULE_ID } from './module-id.js';
 import {
   migrateLegacyActorLinks,
+  migrateLegacyItemFlags,
   migrateLegacySettings,
   purgeRemovedSettings,
   runLegacyMigration,
@@ -126,7 +127,7 @@ describe('runLegacyMigration', () => {
       legacySettings: { mesaKey: 'k' },
       current: { mesaKey: '' },
     });
-    expect(await runLegacyMigration(game)).toEqual({ settings: 1, links: 1 });
+    expect(await runLegacyMigration(game)).toEqual({ settings: 1, links: 1, items: 0 });
     log.mockRestore();
   });
 });
@@ -173,5 +174,86 @@ describe('purgeRemovedSettings (FDD-74)', () => {
     });
     [...docs.values()][0].delete.mockRejectedValueOnce(new Error('sem permissão'));
     expect(await purgeRemovedSettings(game)).toBe(1);
+  });
+});
+
+describe('migrateLegacyItemFlags (FDD-70)', () => {
+  function makeItemActor(items, name = 'Karon') {
+    return { name, items, updateEmbeddedDocuments: vi.fn(async () => {}) };
+  }
+  const legacyItem = (id, flags) => ({ id, flags });
+
+  it('move sourceId e catalogKey do id antigo pro novo, em um lote por Ator', async () => {
+    const actor = makeItemActor([
+      legacyItem('a', { [LEGACY_MODULE_ID]: { sourceId: 'site-a', catalogKey: 'k1' } }),
+      legacyItem('b', { [LEGACY_MODULE_ID]: { sourceId: 'site-b' } }),
+    ]);
+    expect(await migrateLegacyItemFlags({ user: { isGM: true }, actors: [actor] })).toBe(2);
+    expect(actor.updateEmbeddedDocuments).toHaveBeenCalledTimes(1);
+    expect(actor.updateEmbeddedDocuments).toHaveBeenCalledWith('Item', [
+      {
+        _id: 'a',
+        [`flags.${LEGACY_MODULE_ID}.-=sourceId`]: null,
+        [`flags.${MODULE_ID}.sourceId`]: 'site-a',
+        [`flags.${LEGACY_MODULE_ID}.-=catalogKey`]: null,
+        [`flags.${MODULE_ID}.catalogKey`]: 'k1',
+      },
+      {
+        _id: 'b',
+        [`flags.${LEGACY_MODULE_ID}.-=sourceId`]: null,
+        [`flags.${MODULE_ID}.sourceId`]: 'site-b',
+      },
+    ]);
+  });
+
+  it('não sobrescreve o flag novo; só limpa o antigo', async () => {
+    const actor = makeItemActor([
+      legacyItem('a', {
+        [LEGACY_MODULE_ID]: { sourceId: 'velho' },
+        [MODULE_ID]: { sourceId: 'novo' },
+      }),
+    ]);
+    await migrateLegacyItemFlags({ user: { isGM: true }, actors: [actor] });
+    expect(actor.updateEmbeddedDocuments).toHaveBeenCalledWith('Item', [
+      { _id: 'a', [`flags.${LEGACY_MODULE_ID}.-=sourceId`]: null },
+    ]);
+  });
+
+  it('é idempotente: item já migrado ou sem flag não gera update', async () => {
+    const actor = makeItemActor([
+      legacyItem('a', { [MODULE_ID]: { sourceId: 'x' } }),
+      legacyItem('b', {}),
+    ]);
+    expect(await migrateLegacyItemFlags({ user: { isGM: true }, actors: [actor] })).toBe(0);
+    expect(actor.updateEmbeddedDocuments).not.toHaveBeenCalled();
+  });
+
+  it('só o GM migra; Ator que falha não impede os outros', async () => {
+    const item = () => legacyItem('a', { [LEGACY_MODULE_ID]: { sourceId: 's' } });
+    const ruim = makeItemActor([item()], 'Ruim');
+    ruim.updateEmbeddedDocuments.mockRejectedValue(new Error('sem permissão'));
+    const bom = makeItemActor([item()], 'Bom');
+    expect(await migrateLegacyItemFlags({ user: { isGM: false }, actors: [bom] })).toBe(0);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await migrateLegacyItemFlags({ user: { isGM: true }, actors: [ruim, bom] })).toBe(1);
+    warn.mockRestore();
+  });
+});
+
+describe('migrateLegacyItemFlags no Foundry v14 (FDD-70)', () => {
+  it('usa ForcedDeletion em vez da chave "-=" depreciada', async () => {
+    class ForcedDeletion {}
+    vi.stubGlobal('foundry', { data: { operators: { ForcedDeletion } } });
+    const actor = {
+      name: 'Daniel',
+      items: [{ id: 'a', flags: { [LEGACY_MODULE_ID]: { sourceId: 's' } } }],
+      updateEmbeddedDocuments: vi.fn(async () => {}),
+    };
+    await migrateLegacyItemFlags({ user: { isGM: true }, actors: [actor] });
+    const [, [update]] = actor.updateEmbeddedDocuments.mock.calls[0];
+    expect(update[`flags.${LEGACY_MODULE_ID}.sourceId`]).toBeInstanceOf(ForcedDeletion);
+    expect(update[`flags.${MODULE_ID}.sourceId`]).toBe('s');
+    expect(update).not.toHaveProperty(`flags.${LEGACY_MODULE_ID}.-=sourceId`);
+    vi.unstubAllGlobals();
   });
 });
