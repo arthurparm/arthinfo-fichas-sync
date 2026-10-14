@@ -20,6 +20,7 @@ import { applyItemEquip } from './apply-item-equip.js';
 import { applyItemCast } from './apply-item-cast.js';
 import { applyRest } from './apply-rest.js';
 import { applySpellSlot } from './apply-spell-slot.js';
+import { isCachedSpell } from './cached-spell.js';
 import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
 import { actorHasNoMaxHp, repairClassHitPoints, startAtFullHitPoints } from './class-hit-points.js';
 
@@ -348,7 +349,8 @@ export class SyncManager {
 
     // 3. Deep Sync Inteligente de Itens (Garantindo suporte a Magias Complexas)
     if (data.items && Array.isArray(data.items)) {
-      const remoteItems = data.items;
+      // Cache de magia do dnd5e é estado do Foundry: nunca vem do site (FDD-117).
+      const remoteItems = data.items.filter((item) => !isCachedSpell(item));
       const localItems = actor.items.contents;
 
       const toCreate = [];
@@ -405,6 +407,7 @@ export class SyncManager {
       // Itens nativos do Foundry (classe, raça, Fúria...) não têm essa
       // flag — se o site ainda não os conhece, não podem sumir do Ator.
       for (const lItem of localItems) {
+        if (isCachedSpell(lItem)) continue; // cache do dnd5e fica como está (FDD-117)
         const sourceId = readFlag(lItem, 'sourceId');
         if (!sourceId) continue;
         const existsRemote = remoteItems.some(i => i._id === sourceId);
@@ -554,6 +557,7 @@ export class SyncManager {
   _overlayItemsOntoDraft(actor, base) {
     const itemsData = [];
     for (const item of actor.items) {
+      if (isCachedSpell(item)) continue; // cache do dnd5e não é item da ficha (FDD-117)
       try {
         const data = item.toObject();
         data._id = readFlag(item, 'sourceId') || data._id;

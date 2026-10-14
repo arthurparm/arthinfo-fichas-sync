@@ -652,3 +652,56 @@ describe('SyncManager._applyRemoteDraft — avanço de classe é do Foundry', ()
     expect(payload[0].system).not.toHaveProperty('advancement');
   });
 });
+
+describe('SyncManager — magia em cache do dnd5e fica fora da ficha (FDD-117)', () => {
+  const cacheFlags = { dnd5e: { cachedFor: '.Item.feat1.Activity.act1' } };
+
+  function localItem(id, name, flags = {}, sourceId) {
+    return {
+      id,
+      type: 'spell',
+      flags,
+      getFlag: (scope, key) => (key === 'sourceId' ? sourceId : undefined),
+      toObject: () => ({ _id: id, name, type: 'spell', img: 'icons/x.webp', system: {}, flags }),
+    };
+  }
+
+  it('o overlay não manda a magia em cache pro draft', () => {
+    const actor = makeActor();
+    actor.name = 'Lucas';
+    actor.img = '';
+    actor.classes = {};
+    actor.items = [localItem('i1', 'Marca do Caçador', cacheFlags), localItem('i2', 'Curar Ferimentos')];
+    const base = { items: [] };
+    new SyncManager({})._overlayItemsOntoDraft(actor, base);
+    expect(base.items.map((item) => item.name)).toEqual(['Curar Ferimentos']);
+  });
+
+  it('draft que já traz o cache não cria o item no Ator', async () => {
+    const actor = makeActor();
+    actor.items = { contents: [] };
+    actor.createEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      items: [
+        { _id: 'c1', name: 'Marca do Caçador', type: 'spell', system: {}, flags: cacheFlags },
+        { _id: 'm1', name: 'Curar Ferimentos', type: 'spell', system: {} },
+      ],
+    });
+    expect(actor.createEmbeddedDocuments).toHaveBeenCalledOnce();
+    const [, created] = actor.createEmbeddedDocuments.mock.calls[0];
+    expect(created.map((item) => item.name)).toEqual(['Curar Ferimentos']);
+  });
+
+  it('cache local com sourceId fora do draft não é apagado do Ator', async () => {
+    const actor = makeActor();
+    const cache = localItem('i1', 'Marca do Caçador', cacheFlags, 'F1wq75pLRBYHlyyS');
+    actor.items = { contents: [cache] };
+    actor.createEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    await new SyncManager({})._applyRemoteDraft(actor, { items: [] });
+    expect(actor.deleteEmbeddedDocuments).not.toHaveBeenCalled();
+  });
+});
