@@ -7,9 +7,12 @@
 //     perderia de vista;
 //   - as configurações do módulo (chave da mesa, seleção de compêndios), copiadas só
 //     se a configuração nova ainda estiver vazia.
+//   - os flags dos Itens dos Atores (sourceId, catalogKey), em UM lote por Ator
+//     (FDD-70). A leitura com fallback (readFlag) já evitava duplicar item, mas
+//     o flag antigo ficava pra sempre no draft.
 // O que NÃO migra em lote (leitura com fallback em readFlag, ver module-id.js):
-// flags de Itens (sourceId), de mensagens de chat (rollId) e do compêndio
-// (catalogKey) — atualizar todos geraria uma enxurrada de updateItem.
+// flags de mensagens de chat (rollId) e do compêndio (catalogKey) — atualizar
+// todos geraria uma enxurrada de updates.
 import { LEGACY_MODULE_ID, MODULE_ID } from './module-id.js';
 
 const SETTING_KEYS = ['mesaKey', 'compendiumSyncSelection'];
@@ -108,14 +111,49 @@ export async function migrateLegacyActorLinks(game) {
   return migrated;
 }
 
+const ITEM_FLAG_KEYS = ['sourceId', 'catalogKey'];
+
+// Move flags.<legado>.{sourceId,catalogKey} dos Itens de cada Ator pro id novo.
+// Idempotente: sem flag legado, não há update. Não sobrescreve valor já presente
+// no escopo novo (só limpa o antigo). Um updateEmbeddedDocuments por Ator.
+export async function migrateLegacyItemFlags(game) {
+  if (!game.user?.isGM) return 0;
+  let migrated = 0;
+  for (const actor of game.actors ?? []) {
+    const updates = [];
+    for (const item of actor.items ?? []) {
+      const legacyFlags = item.flags?.[LEGACY_MODULE_ID];
+      if (!legacyFlags) continue;
+      const update = { _id: item.id };
+      for (const key of ITEM_FLAG_KEYS) {
+        const legacy = legacyFlags[key];
+        if (legacy === undefined || legacy === null) continue;
+        update[`flags.${LEGACY_MODULE_ID}.-=${key}`] = null;
+        const current = item.flags?.[MODULE_ID]?.[key];
+        if (current === undefined || current === null) update[`flags.${MODULE_ID}.${key}`] = legacy;
+      }
+      if (Object.keys(update).length > 1) updates.push(update);
+    }
+    if (!updates.length) continue;
+    try {
+      await actor.updateEmbeddedDocuments('Item', updates);
+      migrated += updates.length;
+    } catch (error) {
+      console.warn(`Arthinfo Fichas | Não consegui migrar os itens de "${actor.name}".`, error);
+    }
+  }
+  return migrated;
+}
+
 export async function runLegacyMigration(game) {
   await purgeRemovedSettings(game);
   const settings = await migrateLegacySettings(game);
   const links = await migrateLegacyActorLinks(game);
-  if (settings || links) {
+  const items = await migrateLegacyItemFlags(game);
+  if (settings || links || items) {
     console.log(
-      `Arthinfo Fichas | Migração do módulo antigo: ${links} vínculo(s) de ficha e ${settings} configuração(ões).`,
+      `Arthinfo Fichas | Migração do módulo antigo: ${links} vínculo(s) de ficha, ${items} item(ns) e ${settings} configuração(ões).`,
     );
   }
-  return { settings, links };
+  return { settings, links, items };
 }
