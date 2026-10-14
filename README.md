@@ -46,9 +46,9 @@ isso funcionar:
    Sem essa flag, o site ainda tenta casar pelo nome do item
    automaticamente, mas o Foundry não consegue equipar o item real
    automaticamente num Ator vinculado sem essa flag.
-3. Cole a **Chave de Sincronização de Compêndio** (`COMPENDIUM_SYNC_KEY`
-   do backend). Ela autentica o catálogo compartilhado do site — a chave
-   da mesa não escreve nesse catálogo.
+3. A sincronização usa a **Chave da mesa** (a mesma do passo anterior): os
+   itens ficam no compêndio da sua mesa, atribuídos ao mestre. O catálogo
+   público do site (SRD) é mantido pelo projeto e não recebe itens daqui.
 4. Abra **Configurações do Jogo → Arthinfo Fichas Sync → Sincronizar Compêndio
    de Itens** (ou rode o macro abaixo, se o botão não aparecer na sua
    versão do Foundry):
@@ -56,10 +56,14 @@ isso funcionar:
    game.modules.get('arthinfo-fichas-sync').api.openCompendiumSync();
    ```
 5. Marque os compêndios que quer sincronizar e confirme. A sincronização
-   usa `COMPENDIUM_SYNC_KEY`, roda em lotes (útil se o compêndio for grande) e
+   usa a chave da mesa, roda em lotes (útil se o compêndio for grande) e
    mostra o progresso via notificação.
 
 Rodar de novo mais tarde atualiza os itens já sincronizados (não duplica).
+
+Para remover o que você enviou, use **Limpar compêndio** no mesmo diálogo: mostra
+quantos itens saem (tudo ou um pack), pede confirmação e só apaga o compêndio da
+sua mesa — nunca o catálogo público. Não dá para desfazer; só sincronizando de novo.
 
 ## Como funciona
 
