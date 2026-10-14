@@ -59,6 +59,24 @@ describe('buildHitPointsUpdate', () => {
     expect(buildHitPointsUpdate(wizard({ hp1: { type: 'HitPoints', value: { 1: 4 } } }), () => 'x')).toBeNull();
   });
 
+  it('classe em nível 3 (FDD-113): completa os níveis 2 e 3 na média sem tocar no 1º', () => {
+    const item = { type: 'class', system: { levels: 3, advancement: { hp1: { _id: 'hp1', type: 'HitPoints', value: { 1: 'max' } } } } };
+    expect(buildHitPointsUpdate(item, () => 'x')).toEqual({
+      'system.advancement.hp1.value.2': 'avg',
+      'system.advancement.hp1.value.3': 'avg',
+    });
+  });
+
+  it('classe em nível 3 sem avanço de PV: cria com 1 max, 2 e 3 avg', () => {
+    const update = buildHitPointsUpdate({ type: 'class', system: { levels: 3 } }, () => 'abc');
+    expect(update['system.advancement.abc'].value).toEqual({ 1: 'max', 2: 'avg', 3: 'avg' });
+  });
+
+  it('classe em nível 3 com todos os níveis preenchidos: não mexe', () => {
+    const item = { type: 'class', system: { levels: 3, advancement: { hp1: { _id: 'hp1', type: 'HitPoints', value: { 1: 'max', 2: 'avg', 3: 8 } } } } };
+    expect(buildHitPointsUpdate(item, () => 'x')).toBeNull();
+  });
+
   it('ignora o que não é classe ou ainda não tem nível', () => {
     expect(buildHitPointsUpdate({ type: 'feat', system: {} }, () => 'x')).toBeNull();
     expect(buildHitPointsUpdate({ type: 'class', system: { levels: 0 } }, () => 'x')).toBeNull();

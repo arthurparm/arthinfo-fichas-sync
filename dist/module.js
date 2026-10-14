@@ -1190,44 +1190,51 @@ function et(e) {
 	} : null;
 }
 function tt(e, t) {
-	if (!e || e.type !== "class" || !(Number(e.system?.levels) >= 1)) return null;
-	let n = e.system?.advancement, r = et(n);
-	if (r && r.entry?.value?.[1] !== void 0) return null;
-	if (r) return Array.isArray(n) ? { "system.advancement": n.map((e) => e?._id === r.entry._id || e === r.entry ? {
+	let n = {};
+	for (let r = 1; r <= t; r += 1) e?.[r] === void 0 && (n[r] = r === 1 ? "max" : "avg");
+	return n;
+}
+function nt(e, t) {
+	if (!e || e.type !== "class") return null;
+	let n = Number(e.system?.levels);
+	if (!(n >= 1)) return null;
+	let r = e.system?.advancement, i = et(r), a = tt(i?.entry?.value, n);
+	if (i && Object.keys(a).length === 0) return null;
+	if (i) return Array.isArray(r) ? { "system.advancement": r.map((e) => e?._id === i.entry._id || e === i.entry ? {
 		...e,
 		value: {
 			...e.value ?? {},
-			1: "max"
+			...a
 		}
-	} : e) } : { [`system.advancement.${r.id}.value.1`]: "max" };
-	let i = t(), a = {
-		_id: i,
+	} : e) } : Object.fromEntries(Object.entries(a).map(([e, t]) => [`system.advancement.${i.id}.value.${e}`, t]));
+	let o = t(), s = {
+		_id: o,
 		type: q,
 		configuration: {},
-		value: { 1: "max" },
+		value: a,
 		flags: {},
 		hint: ""
 	};
-	return Array.isArray(n) ? { "system.advancement": [...n, a] } : { [`system.advancement.${i}`]: a };
+	return Array.isArray(r) ? { "system.advancement": [...r, s] } : { [`system.advancement.${o}`]: s };
 }
-async function nt(e) {
+async function rt(e) {
 	let t = 0;
 	for (let n of e.items?.contents ?? e.items ?? []) {
 		if (n.type !== "class") continue;
-		let e = tt(n.toObject(), () => foundry.utils.randomID(16));
+		let e = nt(n.toObject(), () => foundry.utils.randomID(16));
 		e && (await n.update(e), t += 1);
 	}
 	return t;
 }
-function rt(e) {
+function it(e) {
 	return !(Number(e?.system?.attributes?.hp?.max) > 0);
 }
-async function it(e, t) {
+async function at(e, t) {
 	if (!t) return !1;
 	let n = e.system?.attributes?.hp;
 	return !(Number(n?.max) > 0) || Number(n?.value) > 0 ? !1 : (await e.update({ "system.attributes.hp.value": n.max }), !0);
 }
-var q, at = e((() => {
+var q, ot = e((() => {
 	q = "HitPoints";
 }));
 //#endregion
@@ -1242,7 +1249,7 @@ function Y(e) {
 	let t = foundry.utils.deepClone(e);
 	return delete t._stats, delete t.sort, delete t.ownership, delete t.folder, t.flags && (delete t.flags.core, delete t.flags.exportSource), t;
 }
-function ot(e) {
+function st(e) {
 	if (!e.system || !e.system.activities) return e;
 	let t = e.system.activities;
 	if (Array.isArray(t)) {
@@ -1254,47 +1261,47 @@ function ot(e) {
 	} else if (typeof t == "object") for (let [e, n] of Object.entries(t)) n._id ||= e;
 	return e;
 }
-function st(e) {
+function ct(e) {
 	let t = v(e);
 	return !t || String(t).includes("mystery-man") || String(t).includes("icons/svg/item-bag") ? "" : t;
 }
 function X(e, t) {
 	return typeof game > "u" || !game.actors ? !1 : f(game.actors, e.id).has(t);
 }
-function ct(e) {
+function lt(e) {
 	let t = e.statuses;
 	return t ? typeof t.size == "number" ? [...t].map(String) : Array.isArray(t) ? t.map(String) : typeof t == "object" ? Object.keys(t) : [] : [];
 }
-function lt(e) {
+function ut(e) {
 	if (typeof e.allApplicableEffects == "function") return [...e.allApplicableEffects()];
 	let t = e.effects;
 	return t?.contents ?? (Array.isArray(t) ? t : []);
 }
-function ut(e) {
+function dt(e) {
 	return e.type === "enchantment" || e.isAppliedEnchantment === !0;
 }
-function dt(e) {
+function ft(e) {
 	let t = e.duration?.label;
 	if (!t) return "";
 	let n = String(t).trim();
 	return !n || /^(none|nenhum|permanent|permanente|indefinid)/i.test(n) ? "" : n;
 }
-function ft(e, t) {
+function pt(e, t) {
 	let n = e.parent;
 	return n && n !== t && n.name ? n.name : "";
 }
-function pt(e, t) {
+function mt(e, t) {
 	let n = { name: e.name }, r = v(e.img || e.icon);
 	r && (n.img = r), e.disabled && (n.disabled = !0), e.isSuppressed && (n.isSuppressed = !0), e.isTemporary && (n.isTemporary = !0);
-	let i = ct(e);
+	let i = lt(e);
 	i.length && (n.statuses = i);
-	let a = dt(e);
+	let a = ft(e);
 	a && (n.durationLabel = a);
-	let o = ft(e, t);
+	let o = pt(e, t);
 	return o && (n.source = o), n;
 }
-function mt(e) {
-	return lt(e).filter((e) => !e.disabled && !e.isSuppressed && e.name && !ut(e)).map((t) => pt(t, e)).filter((e) => {
+function ht(e) {
+	return ut(e).filter((e) => !e.disabled && !e.isSuppressed && e.name && !dt(e)).map((t) => mt(t, e)).filter((e) => {
 		let t = e.statuses ?? [];
 		return t.length !== 0 && !t.every((e) => e === "exhaustion");
 	}).map((e) => {
@@ -1305,16 +1312,16 @@ function mt(e) {
 		return e.img && (t.img = e.img), t;
 	});
 }
-function ht(e) {
-	return lt(e).filter((e) => e?.name && !ut(e)).map((t) => pt(t, e));
+function gt(e) {
+	return ut(e).filter((e) => e?.name && !dt(e)).map((t) => mt(t, e));
 }
-var Z, gt, _t = e((() => {
-	R(), Ae(), b(), Le(), Be(), h(), He(), Je(), Xe(), Qe(), l(), at(), Z = /* @__PURE__ */ new Set([
+var Z, _t, vt = e((() => {
+	R(), Ae(), b(), Le(), Be(), h(), He(), Je(), Xe(), Qe(), l(), ot(), Z = /* @__PURE__ */ new Set([
 		"class",
 		"subclass",
 		"race",
 		"background"
-	]), gt = class {
+	]), _t = class {
 		constructor(e) {
 			this.apiClient = e, this.streams = /* @__PURE__ */ new Map(), this.activeSyncs = /* @__PURE__ */ new Set(), this.lastKnownDraft = /* @__PURE__ */ new Map(), this.saveQueues = /* @__PURE__ */ new Map(), this.debouncedActorUpdate = J(this._executeActorUpdate.bind(this), 1e3), this.debouncedItemUpdate = J(this._executeItemUpdate.bind(this), 1e3);
 		}
@@ -1381,7 +1388,7 @@ var Z, gt, _t = e((() => {
 			t && (t.close(), this.streams.delete(e.id)), this.lastKnownDraft.delete(e.id);
 		}
 		async _applyRemoteDraft(e, t) {
-			let n = {}, r = rt(e), i = foundry.utils.getProperty(t, "derivedStats.maxHp"), o = typeof i == "number" && i <= 0;
+			let n = {}, r = it(e), i = foundry.utils.getProperty(t, "derivedStats.maxHp"), o = typeof i == "number" && i <= 0;
 			for (let [r, i] of Object.entries(M)) {
 				if (r.startsWith("system.abilities") || N.has(r) || o && r.startsWith("system.attributes.hp.")) continue;
 				let a = foundry.utils.getProperty(t, i);
@@ -1405,7 +1412,7 @@ var Z, gt, _t = e((() => {
 			}), Object.keys(n).length > 0 && await e.update(n), t.items && Array.isArray(t.items)) {
 				let n = t.items, r = e.items.contents, i = [], o = [], l = [];
 				for (let e of n) {
-					let t = r.find((t) => a(t, "sourceId") === e._id || t.id === e._id), n = ot(foundry.utils.deepClone(e));
+					let t = r.find((t) => a(t, "sourceId") === e._id || t.id === e._id), n = st(foundry.utils.deepClone(e));
 					if (t) {
 						let r = Y(t.toObject()), i = Y(n);
 						Z.has(r.type) && (r.system && delete r.system.advancement, i.system && delete i.system.advancement), i._id = r._id;
@@ -1426,12 +1433,12 @@ var Z, gt, _t = e((() => {
 				l.length > 0 && await e.deleteEmbeddedDocuments("Item", l), i.length > 0 && await e.createEmbeddedDocuments("Item", i), o.length > 0 && await e.updateEmbeddedDocuments("Item", o);
 			}
 			try {
-				await nt(e);
+				await rt(e);
 			} catch (e) {
 				console.warn("Arthinfo Fichas | Não foi possível reparar o PV da classe:", e);
 			}
 			try {
-				await it(e, r);
+				await at(e, r);
 			} catch (e) {
 				console.warn("Arthinfo Fichas | Não foi possível encher o PV do Ator:", e);
 			}
@@ -1491,7 +1498,7 @@ var Z, gt, _t = e((() => {
 				let e = I.find(({ foundry: e }) => e === r);
 				e && foundry.utils.setProperty(t, "spellcasting.ability", e.firebase);
 			}
-			foundry.utils.setProperty(t, "concept.portraitUrl", st(e.img)), t.conditions = mt(e), t.effects = ht(e), t.traits = xe(e), t.foundryIdentity = A(e);
+			foundry.utils.setProperty(t, "concept.portraitUrl", ct(e.img)), t.conditions = ht(e), t.effects = gt(e), t.traits = xe(e), t.foundryIdentity = A(e);
 			let i = Ce(e);
 			t.identity = {
 				...t.identity ?? {},
@@ -1522,7 +1529,7 @@ var Z, gt, _t = e((() => {
 					system: t.type === "class" ? { levels: t.system?.levels } : {}
 				});
 			}
-			t.items = n, t.foundryIdentity = A(e), t.conditions = mt(e), t.effects = ht(e);
+			t.items = n, t.foundryIdentity = A(e), t.conditions = ht(e), t.effects = gt(e);
 		}
 		_saveDraftFromActor(e, t, n, r) {
 			let i = (this.saveQueues.get(e.id) ?? Promise.resolve()).then(() => this._saveDraftFromActorNow(e, t, n, r)), a = i.catch(() => {});
@@ -1593,7 +1600,7 @@ var Z, gt, _t = e((() => {
 }));
 //#endregion
 //#region src/legacy-migration.js
-function vt(e) {
+function yt(e) {
 	if (typeof e != "string") return e;
 	try {
 		return JSON.parse(e);
@@ -1601,18 +1608,18 @@ function vt(e) {
 		return e;
 	}
 }
-function yt(e, t) {
+function bt(e, t) {
 	let n = `${c}.${t}`, r = e.settings?.storage?.get?.("world"), i = r?.getSetting?.(n) ?? r?.find?.((e) => e.key === n);
-	if (i) return vt(i.value);
+	if (i) return yt(i.value);
 }
 function Q(e) {
 	return e == null || e === "" || Array.isArray(e) && e.length === 0;
 }
-async function bt(e) {
+async function xt(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
-	for (let n of wt) try {
-		let r = yt(e, n);
+	for (let n of Tt) try {
+		let r = bt(e, n);
 		if (Q(r)) continue;
 		let i = e.settings.get(s, n);
 		if (!Q(i) && i !== $[n] || i === r) continue;
@@ -1622,7 +1629,7 @@ async function bt(e) {
 	}
 	return t;
 }
-async function xt(e) {
+async function St(e) {
 	if (!e.user?.isGM) return 0;
 	let t = e.settings?.storage?.get?.("world"), n = 0;
 	for (let e of [s, c]) {
@@ -1637,7 +1644,7 @@ async function xt(e) {
 	}
 	return n;
 }
-async function St(e) {
+async function Ct(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
 	for (let n of e.actors ?? []) {
@@ -1651,22 +1658,22 @@ async function St(e) {
 	}
 	return t;
 }
-async function Ct(e) {
-	await xt(e);
-	let t = await bt(e), n = await St(e);
+async function wt(e) {
+	await St(e);
+	let t = await xt(e), n = await Ct(e);
 	return (t || n) && console.log(`Arthinfo Fichas | Migração do módulo antigo: ${n} vínculo(s) de ficha e ${t} configuração(ões).`), {
 		settings: t,
 		links: n
 	};
 }
-var wt, $, Tt = e((() => {
-	l(), wt = [
+var Tt, $, Et = e((() => {
+	l(), Tt = [
 		"mesaKey",
 		"backendUrl",
 		"compendiumSyncSelection"
 	], $ = { backendUrl: "https://api.runarcana.org" };
-})), Et = /* @__PURE__ */ t((() => {
-	i(), h(), de(), _e(), _t(), Tt(), l();
+})), Dt = /* @__PURE__ */ t((() => {
+	i(), h(), de(), _e(), vt(), Et(), l();
 	var e = null, t = null;
 	function n(e) {
 		let t = game.settings.get(s, e);
@@ -1757,7 +1764,7 @@ var wt, $, Tt = e((() => {
 		});
 	}), Hooks.once("ready", async () => {
 		let i = game.modules.get(s);
-		i && (i.api = { openCompendiumSync: c }), await Ct(game);
+		i && (i.api = { openCompendiumSync: c }), await wt(game);
 		let a = n("mesaKey"), o = n("backendUrl");
 		if (!a) {
 			console.warn("Arthinfo Fichas | Chave da mesa não configurada nas configurações do módulo.");
@@ -1770,7 +1777,7 @@ var wt, $, Tt = e((() => {
 		e = new r({
 			mesaKey: a,
 			baseUrl: o
-		}), t = new gt(e), await d(), game.actors.forEach((e) => t.startListening(e)), console.log("Arthinfo Fichas | Backend configurado e ouvindo atores vinculados."), i && (i.api.apiClient = e, i.api.syncManager = t);
+		}), t = new _t(e), await d(), game.actors.forEach((e) => t.startListening(e)), console.log("Arthinfo Fichas | Backend configurado e ouvindo atores vinculados."), i && (i.api.apiClient = e, i.api.syncManager = t);
 	}), Hooks.on("updateActor", (e, n, r, i) => {
 		i === game.user.id && t && t.handleActorUpdate(e, n);
 	}), Hooks.on("preCreateActor", (e, t, n, r) => {
@@ -1834,4 +1841,4 @@ var wt, $, Tt = e((() => {
 	});
 }));
 //#endregion
-export default Et();
+export default Dt();
