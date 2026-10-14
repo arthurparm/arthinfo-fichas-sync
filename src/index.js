@@ -11,6 +11,7 @@ import {
 } from './draft-link.js';
 import { SyncManager } from './sync-manager.js';
 import { runLegacyMigration } from './legacy-migration.js';
+import { isCachedSpell } from './cached-spell.js';
 import { MODULE_ID, clearFlag, readFlag } from './module-id.js';
 import { BACKEND_URL } from './backend-url.js';
 
@@ -222,17 +223,17 @@ Hooks.on('deleteActor', (actor, options, userId) => {
 });
 
 Hooks.on('createItem', (item, options, userId) => {
-  if (userId !== game.user.id || !syncManager || !item.parent) return;
+  if (userId !== game.user.id || !syncManager || !item.parent || isCachedSpell(item)) return;
   syncManager.handleItemUpdate(item.parent);
 });
 
 Hooks.on('updateItem', (item, changes, options, userId) => {
-  if (userId !== game.user.id || !syncManager || !item.parent) return;
+  if (userId !== game.user.id || !syncManager || !item.parent || isCachedSpell(item)) return;
   syncManager.handleItemUpdate(item.parent);
 });
 
 Hooks.on('deleteItem', (item, options, userId) => {
-  if (userId !== game.user.id || !syncManager || !item.parent) return;
+  if (userId !== game.user.id || !syncManager || !item.parent || isCachedSpell(item)) return;
   syncManager.handleItemUpdate(item.parent);
 });
 
