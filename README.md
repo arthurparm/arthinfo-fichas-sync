@@ -20,8 +20,8 @@ atualizações ao vivo (via SSE).
 4. No cabeçalho da ficha de um Ator, use o botão **Arthinfo Fichas Sync** para
    vincular o Ator a uma ficha da mesa.
 
-A **URL do Backend Arthinfo Fichas** já vem como `https://arthinfo-api.arthur-paraiso-mar.workers.dev`. Só
-altere se estiver hospedando o backend por conta própria.
+A URL do backend (`https://arthinfo-api.arthur-paraiso-mar.workers.dev`) vem embutida no módulo e não é
+configurável. Quem hospeda o próprio backend recompila o módulo com `BACKEND_URL=https://seu.backend npm run build`.
 
 Sem a chave da mesa, o botão avisa para colá-la nas configurações. Não há
 login Google nem configuração de Firebase.
@@ -92,7 +92,7 @@ O id do módulo mudou de `runarcana-sync` para `arthinfo-fichas-sync`. No primei
 `ready` do GM com o módulo novo, ele:
 
 - copia o vínculo Ator ↔ ficha (`flags.runarcana-sync.draftId` → `flags.arthinfo-fichas-sync.draftId`);
-- copia as configurações (chave da mesa, URL do backend, chave de compêndio) quando as do módulo novo ainda estão vazias.
+- copia as configurações (chave da mesa, chave de compêndio) quando as do módulo novo ainda estão vazias.
 
 Flags de itens (`sourceId`), de mensagens de chat e do compêndio (`catalogKey`) **não** são
 reescritas: o módulo lê o escopo novo e, se vazio, o antigo. Antes de usar em produção:

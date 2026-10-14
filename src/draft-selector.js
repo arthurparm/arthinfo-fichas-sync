@@ -42,7 +42,7 @@ export function buildDraftLoadErrorMessage(err) {
       <p>Gere uma nova na página da mesa no site e cole em Configurações do módulo &rsaquo; Chave da mesa.</p>`;
   }
   return `<p>Erro ao carregar fichas: ${escapeHtml(err?.message || 'Erro desconhecido.')}</p>
-    <p>Verifique se a chave da mesa e a URL do backend estão configuradas corretamente nas configurações do módulo e
+    <p>Verifique se a chave da mesa está configurada corretamente nas configurações do módulo e
     se o servidor (arthinfo-fichas-api) está no ar.</p>`;
 }
 
