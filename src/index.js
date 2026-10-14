@@ -12,6 +12,7 @@ import {
 import { SyncManager } from './sync-manager.js';
 import { runLegacyMigration } from './legacy-migration.js';
 import { MODULE_ID, clearFlag, readFlag } from './module-id.js';
+import { BACKEND_URL } from './backend-url.js';
 
 let apiClient = null;
 let syncManager = null;
@@ -27,14 +28,9 @@ function openCompendiumSyncDialog() {
     ui.notifications.warn('Cole a chave da mesa nas configurações do módulo para sincronizar o compêndio.');
     return;
   }
-  const backendUrl = getStringSetting('backendUrl');
-  if (!backendUrl) {
-    ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
-    return;
-  }
   const client = new ArthinfoApiClient({
     mesaKey,
-    baseUrl: backendUrl,
+    baseUrl: BACKEND_URL,
   });
   new CompendiumSyncDialog(client).render();
 }
@@ -78,7 +74,7 @@ async function openDraftSelector(actor) {
     return ui.notifications.warn('Cole a chave da mesa nas configurações do módulo');
   }
   if (!apiClient) {
-    return ui.notifications.warn('Configure a URL do backend nas configurações do módulo primeiro.');
+    return ui.notifications.warn('Recarregue o Foundry: a sincronização só liga depois de salvar a chave da mesa.');
   }
 
   const currentDraftId = readFlag(actor, 'draftId');
@@ -144,15 +140,6 @@ Hooks.once('init', () => {
     restricted: true
   });
 
-  game.settings.register(MODULE_ID, 'backendUrl', {
-    name: 'URL do Backend Arthinfo Fichas',
-    hint: 'URL base do arthinfo-fichas-api. Só altere se estiver hospedando o backend por conta própria.',
-    scope: 'world',
-    config: true,
-    type: String,
-    default: 'https://arthinfo-api.arthur-paraiso-mar.workers.dev',
-    requiresReload: true
-  });
 });
 
 Hooks.once('ready', async () => {
@@ -169,20 +156,15 @@ Hooks.once('ready', async () => {
   await runLegacyMigration(game);
 
   const mesaKey = getStringSetting('mesaKey');
-  const backendUrl = getStringSetting('backendUrl');
 
   if (!mesaKey) {
     console.warn('Arthinfo Fichas | Chave da mesa não configurada nas configurações do módulo.');
     return;
   }
-  if (!backendUrl) {
-    console.warn('Arthinfo Fichas | URL do backend não configurada nas configurações do módulo.');
-    return;
-  }
 
   apiClient = new ArthinfoApiClient({
     mesaKey,
-    baseUrl: backendUrl,
+    baseUrl: BACKEND_URL,
   });
   syncManager = new SyncManager(apiClient);
 
