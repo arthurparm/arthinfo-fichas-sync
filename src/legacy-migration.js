@@ -113,6 +113,14 @@ export async function migrateLegacyActorLinks(game) {
 
 const ITEM_FLAG_KEYS = ['sourceId', 'catalogKey'];
 
+// Foundry v14 depreciou a chave "-=campo" (avisa no console); o v13 ainda só
+// conhece ela. Usa ForcedDeletion quando existe e cai pra sintaxe antiga.
+function markForDeletion(update, parentPath, key) {
+  const ForcedDeletion = globalThis.foundry?.data?.operators?.ForcedDeletion;
+  if (ForcedDeletion) update[`${parentPath}.${key}`] = new ForcedDeletion();
+  else update[`${parentPath}.-=${key}`] = null;
+}
+
 // Move flags.<legado>.{sourceId,catalogKey} dos Itens de cada Ator pro id novo.
 // Idempotente: sem flag legado, não há update. Não sobrescreve valor já presente
 // no escopo novo (só limpa o antigo). Um updateEmbeddedDocuments por Ator.
@@ -128,7 +136,7 @@ export async function migrateLegacyItemFlags(game) {
       for (const key of ITEM_FLAG_KEYS) {
         const legacy = legacyFlags[key];
         if (legacy === undefined || legacy === null) continue;
-        update[`flags.${LEGACY_MODULE_ID}.-=${key}`] = null;
+        markForDeletion(update, `flags.${LEGACY_MODULE_ID}`, key);
         const current = item.flags?.[MODULE_ID]?.[key];
         if (current === undefined || current === null) update[`flags.${MODULE_ID}.${key}`] = legacy;
       }

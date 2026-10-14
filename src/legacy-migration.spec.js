@@ -239,3 +239,21 @@ describe('migrateLegacyItemFlags (FDD-70)', () => {
     warn.mockRestore();
   });
 });
+
+describe('migrateLegacyItemFlags no Foundry v14 (FDD-70)', () => {
+  it('usa ForcedDeletion em vez da chave "-=" depreciada', async () => {
+    class ForcedDeletion {}
+    vi.stubGlobal('foundry', { data: { operators: { ForcedDeletion } } });
+    const actor = {
+      name: 'Daniel',
+      items: [{ id: 'a', flags: { [LEGACY_MODULE_ID]: { sourceId: 's' } } }],
+      updateEmbeddedDocuments: vi.fn(async () => {}),
+    };
+    await migrateLegacyItemFlags({ user: { isGM: true }, actors: [actor] });
+    const [, [update]] = actor.updateEmbeddedDocuments.mock.calls[0];
+    expect(update[`flags.${LEGACY_MODULE_ID}.sourceId`]).toBeInstanceOf(ForcedDeletion);
+    expect(update[`flags.${MODULE_ID}.sourceId`]).toBe('s');
+    expect(update).not.toHaveProperty(`flags.${LEGACY_MODULE_ID}.-=sourceId`);
+    vi.unstubAllGlobals();
+  });
+});
