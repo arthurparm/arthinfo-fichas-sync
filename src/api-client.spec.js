@@ -175,43 +175,57 @@ describe('ArthinfoApiClient', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('PUT de compêndio: sem sync key nem chave da mesa, falha sem chamar fetch', async () => {
+  it('PUT de compêndio sem chave da mesa falha sem chamar fetch', async () => {
     fetch.mockResolvedValue(jsonResponse({ ok: true }));
 
     await expect(makeClient({ mesaKey: '' }).putCompendiumItemsBatch([{ name: 'Adaga' }])).rejects.toThrow(
-      'Configure a chave de sincronização de compêndio ou a chave da mesa.',
+      'Chave da mesa não configurada.',
     );
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('PUT de compêndio com só X-Sync-Key (instalação antiga, sem chave da mesa)', async () => {
-    fetch.mockResolvedValue(jsonResponse({ ok: true }));
-
-    await makeClient({ mesaKey: '', syncKey: 'global-sync' }).putCompendiumItemsBatch([{ name: 'Adaga' }]);
-    expect(fetch.mock.calls[0][1].headers).toEqual({
-      'Content-Type': 'application/json',
-      'X-Sync-Key': 'global-sync',
-    });
-  });
-
-  it('PUT de compêndio manda X-Mesa-Key e X-Sync-Key juntos quando as duas estão configuradas (FDD-16)', async () => {
+  it('PUT de compêndio nunca manda X-Sync-Key, mesmo que o cliente receba uma (FDD-74)', async () => {
     fetch.mockResolvedValue(jsonResponse({ ok: true }));
 
     await makeClient({ syncKey: 'global-sync' }).putCompendiumItemsBatch([{ name: 'Adaga' }]);
-    expect(fetch.mock.calls[0][1].headers).toEqual({
-      'Content-Type': 'application/json',
-      'X-Mesa-Key': 'ra_mesa_abc',
-      'X-Sync-Key': 'global-sync',
-    });
+    expect(fetch.mock.calls[0][1].headers['X-Sync-Key']).toBeUndefined();
+    expect(fetch.mock.calls[0][1].headers['X-Mesa-Key']).toBe('ra_mesa_abc');
   });
 
-  it('PUT de compêndio só com chave da mesa (sem sync key): homebrew escopado à mesa', async () => {
+  it('getMyCompendium consulta /compendium/mine com a chave da mesa', async () => {
+    fetch.mockResolvedValue(jsonResponse({ total: 3, packs: [{ packId: 'world.a', count: 3 }] }));
+
+    const result = await makeClient().getMyCompendium();
+    expect(result.total).toBe(3);
+    expect(fetch.mock.calls[0][0]).toBe('https://api.runarcana.org/api/compendium/mine');
+    expect(fetch.mock.calls[0][1].headers['X-Mesa-Key']).toBe('ra_mesa_abc');
+  });
+
+  it('clearMyCompendium: DELETE sem filtro e com packId codificado', async () => {
+    fetch.mockResolvedValue(jsonResponse({ deleted: 5 }));
+
+    expect(await makeClient().clearMyCompendium()).toEqual({ deleted: 5 });
+    expect(fetch.mock.calls[0][0]).toBe('https://api.runarcana.org/api/compendium/items');
+    expect(fetch.mock.calls[0][1].method).toBe('DELETE');
+
+    await makeClient().clearMyCompendium('world.meu pack');
+    expect(fetch.mock.calls[1][0]).toBe('https://api.runarcana.org/api/compendium/items?packId=world.meu%20pack');
+  });
+
+  it('clearMyCompendium propaga o status quando a API recusa', async () => {
+    fetch.mockResolvedValue(jsonResponse({ error: 'x' }, 401));
+    const error = await makeClient().clearMyCompendium().catch((e) => e);
+    expect(error.status).toBe(401);
+  });
+
+  it('PUT de compêndio só com chave da mesa: compêndio escopado à mesa', async () => {
     fetch.mockResolvedValue(jsonResponse({ ok: true }));
 
     await makeClient().putCompendiumItemsBatch([{ name: 'Adaga Homebrew' }]);
     expect(fetch.mock.calls[0][1].headers).toEqual({
       'Content-Type': 'application/json',
       'X-Mesa-Key': 'ra_mesa_abc',
+      Authorization: 'Bearer ra_mesa_abc',
     });
   });
 });
