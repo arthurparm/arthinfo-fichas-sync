@@ -976,7 +976,7 @@ var V, H, U, W, G, je = e((() => {
 //#endregion
 //#region src/chat-roll.js
 function Me(e) {
-	let t = K[e?.kind] ?? "Rolagem", n = typeof e?.label == "string" ? e.label.trim() : "";
+	let t = Re[e?.kind] ?? "Rolagem", n = typeof e?.label == "string" ? e.label.trim() : "";
 	return !n || n === t ? t : `${t} — ${n}`;
 }
 function Ne(e) {
@@ -1044,8 +1044,8 @@ async function Le(e, t) {
 		console.error("Arthinfo Fichas | Falha ao publicar rolagem no chat:", e);
 	}
 }
-var K, Re = e((() => {
-	l(), K = {
+var Re, ze = e((() => {
+	l(), Re = {
 		skill: "Perícia",
 		save: "Resistência",
 		attack: "Ataque",
@@ -1059,11 +1059,11 @@ var K, Re = e((() => {
 }));
 //#endregion
 //#region src/consume-hit-die.js
-function ze(e, t) {
+function Be(e, t) {
 	let n = e.system?.attributes?.hd?.classes;
 	return !n || typeof n.find != "function" ? null : n.find((e) => e.system?.hd?.denomination === t && e.system?.hd?.value) ?? null;
 }
-async function Be(e, t) {
+async function Ve(e, t) {
 	if (!e || t?.kind !== "hit-die" || game.user?.id !== game.users?.activeGM?.id) return;
 	let n = e.system?.attributes?.hd;
 	if (!n) return;
@@ -1072,7 +1072,7 @@ async function Be(e, t) {
 		if (!n.value) return;
 		i["system.attributes.hd.spent"] = (n.spent ?? 0) + 1;
 	} else {
-		if (a = ze(e, r), !a) return;
+		if (a = Be(e, r), !a) return;
 		o = { "system.hd.spent": a.system.hd.spent + 1 };
 	}
 	let s = e.system?.attributes?.hp, c = Math.max(0, Number(t.total) || 0);
@@ -1089,10 +1089,10 @@ async function Be(e, t) {
 		console.error("Arthinfo Fichas | Falha ao descontar dado de vida no Ator:", e);
 	}
 }
-var Ve = e((() => {}));
+var He = e((() => {}));
 //#endregion
 //#region src/apply-item-equip.js
-async function He(e, t) {
+async function Ue(e, t) {
 	if (!e || typeof t?.itemId != "string" || typeof t?.equipped != "boolean" || game.user?.id !== game.users?.activeGM?.id) return;
 	let { itemId: n, equipped: r } = t, i = e.items.find((e) => (a(e, "sourceId") || e.id) === n);
 	if (!i) {
@@ -1105,15 +1105,15 @@ async function He(e, t) {
 		console.error("Arthinfo Fichas | Falha ao (des)equipar item no Ator:", e);
 	}
 }
-var Ue = e((() => {
+var We = e((() => {
 	l();
 }));
 //#endregion
 //#region src/apply-item-cast.js
-function We(e, t) {
+function Ge(e, t) {
 	return e.items.find((e) => (a(e, "sourceId") || e.id) === t);
 }
-async function Ge(e, t, n) {
+async function Ke(e, t, n) {
 	let r = `spell${n}`, i = e.system?.spells?.[r];
 	if (!i || (i.value ?? 0) <= 0) {
 		console.warn(`Arthinfo Fichas | Sem slot de ${n}º círculo disponível em ${e.name} pra conjurar ${t.name}.`);
@@ -1121,7 +1121,7 @@ async function Ge(e, t, n) {
 	}
 	await e.update({ [`system.spells.${r}.value`]: i.value - 1 });
 }
-async function Ke(e) {
+async function qe(e) {
 	let t = e.system?.uses, n = Number(t?.max), r = t?.spent ?? 0;
 	if (!t || !Number.isFinite(n) || r >= n) {
 		console.warn(`Arthinfo Fichas | Sem carga própria disponível em ${e.name} pra conjurar de graça.`);
@@ -1129,16 +1129,16 @@ async function Ke(e) {
 	}
 	await e.update({ "system.uses.spent": r + 1 });
 }
-async function qe(e, t) {
+async function Je(e, t) {
 	let n = typeof ChatMessage.getSpeaker == "function" ? ChatMessage.getSpeaker({ actor: e }) : { alias: e.name }, r = `<p><strong>${e.name}</strong> quer conjurar <strong>${t.name}</strong> — mecânica complexa demais pra automatizar pela ficha, resolver no Foundry.</p>`;
 	await ChatMessage.create({
 		speaker: n,
 		content: r
 	});
 }
-async function Je(e, t) {
+async function Ye(e, t) {
 	if (!e || !t || typeof t.itemId != "string" || game.user?.id !== game.users?.activeGM?.id) return;
-	let n = We(e, t.itemId);
+	let n = Ge(e, t.itemId);
 	if (!n) {
 		console.warn(`Arthinfo Fichas | Item ${t.itemId} não encontrado em ${e.name} pra conjurar.`);
 		return;
@@ -1147,28 +1147,28 @@ async function Je(e, t) {
 		if (t.using === "slot") {
 			let r = Number(t.slotLevel);
 			if (!Number.isInteger(r) || r < 1 || r > 9) return;
-			await Ge(e, n, r);
-		} else t.using === "itemUses" ? await Ke(n) : t.using === "gm" && await qe(e, n);
+			await Ke(e, n, r);
+		} else t.using === "itemUses" ? await qe(n) : t.using === "gm" && await Je(e, n);
 	} catch (e) {
 		console.error("Arthinfo Fichas | Falha ao aplicar conjuração de magia:", e);
 	}
 }
-var Ye = e((() => {
+var Xe = e((() => {
 	l();
 }));
 //#endregion
 //#region src/apply-rest.js
-async function Xe(e, t) {
+async function Ze(e, t) {
 	if (e && t && game.user?.id === game.users?.activeGM?.id) try {
 		t.type === "long" ? await e.longRest({ dialog: !1 }) : t.type === "short" && await e.shortRest({ dialog: !1 });
 	} catch (e) {
 		console.error("Arthinfo Fichas | Falha ao aplicar descanso:", e);
 	}
 }
-var Ze = e((() => {}));
+var Qe = e((() => {}));
 //#endregion
 //#region src/apply-spell-slot.js
-async function Qe(e, t) {
+async function $e(e, t) {
 	if (!e || !t || game.user?.id !== game.users?.activeGM?.id) return;
 	let n = t.level === "pact" ? "pact" : `spell${Number(t.level)}`, r = e.system?.spells?.[n], i = Number(t.value);
 	if (!r || !Number.isInteger(i) || i < 0) return;
@@ -1179,29 +1179,35 @@ async function Qe(e, t) {
 		console.error("Arthinfo Fichas | Falha ao ajustar slot de magia:", e);
 	}
 }
-var $e = e((() => {}));
+var et = e((() => {}));
+//#endregion
+//#region src/cached-spell.js
+function K(e) {
+	return !!e?.flags?.dnd5e?.cachedFor;
+}
+var tt = e((() => {}));
 //#endregion
 //#region src/class-hit-points.js
-function et(e) {
+function nt(e) {
 	return e ? Array.isArray(e) ? e.map((e, t) => [String(e?._id ?? t), e]) : Object.entries(e) : [];
 }
-function tt(e) {
-	let t = et(e).find(([, e]) => e?.type === q);
+function rt(e) {
+	let t = nt(e).find(([, e]) => e?.type === q);
 	return t ? {
 		id: t[0],
 		entry: t[1]
 	} : null;
 }
-function nt(e, t) {
+function it(e, t) {
 	let n = {};
 	for (let r = 1; r <= t; r += 1) e?.[r] === void 0 && (n[r] = r === 1 ? "max" : "avg");
 	return n;
 }
-function rt(e, t) {
+function at(e, t) {
 	if (!e || e.type !== "class") return null;
 	let n = Number(e.system?.levels);
 	if (!(n >= 1)) return null;
-	let r = e.system?.advancement, i = tt(r), a = nt(i?.entry?.value, n);
+	let r = e.system?.advancement, i = rt(r), a = it(i?.entry?.value, n);
 	if (i && Object.keys(a).length === 0) return null;
 	if (i) return Array.isArray(r) ? { "system.advancement": r.map((e) => e?._id === i.entry._id || e === i.entry ? {
 		...e,
@@ -1220,39 +1226,39 @@ function rt(e, t) {
 	};
 	return Array.isArray(r) ? { "system.advancement": [...r, s] } : { [`system.advancement.${o}`]: s };
 }
-async function it(e) {
+async function ot(e) {
 	let t = 0;
 	for (let n of e.items?.contents ?? e.items ?? []) {
 		if (n.type !== "class") continue;
-		let e = rt(n.toObject(), () => foundry.utils.randomID(16));
+		let e = at(n.toObject(), () => foundry.utils.randomID(16));
 		e && (await n.update(e), t += 1);
 	}
 	return t;
 }
-function at(e) {
+function st(e) {
 	return !(Number(e?.system?.attributes?.hp?.max) > 0);
 }
-async function ot(e, t) {
+async function ct(e, t) {
 	if (!t) return !1;
 	let n = e.system?.attributes?.hp;
 	return !(Number(n?.max) > 0) || Number(n?.value) > 0 ? !1 : (await e.update({ "system.attributes.hp.value": n.max }), !0);
 }
-var q, st = e((() => {
+var q, lt = e((() => {
 	q = "HitPoints";
 }));
 //#endregion
 //#region src/sync-manager.js
-function J(e, t) {
+function ut(e, t) {
 	let n;
 	return function(...r) {
 		clearTimeout(n), n = setTimeout(() => e.apply(this, r), t);
 	};
 }
-function Y(e) {
+function J(e) {
 	let t = foundry.utils.deepClone(e);
 	return delete t._stats, delete t.sort, delete t.ownership, delete t.folder, t.flags && (delete t.flags.core, delete t.flags.exportSource), t;
 }
-function ct(e) {
+function dt(e) {
 	if (!e.system || !e.system.activities) return e;
 	let t = e.system.activities;
 	if (Array.isArray(t)) {
@@ -1264,47 +1270,47 @@ function ct(e) {
 	} else if (typeof t == "object") for (let [e, n] of Object.entries(t)) n._id ||= e;
 	return e;
 }
-function lt(e) {
+function ft(e) {
 	let t = y(e);
 	return !t || String(t).includes("mystery-man") || String(t).includes("icons/svg/item-bag") ? "" : t;
 }
-function X(e, t) {
+function Y(e, t) {
 	return typeof game > "u" || !game.actors ? !1 : f(game.actors, e.id).has(t);
 }
-function ut(e) {
+function pt(e) {
 	let t = e.statuses;
 	return t ? typeof t.size == "number" ? [...t].map(String) : Array.isArray(t) ? t.map(String) : typeof t == "object" ? Object.keys(t) : [] : [];
 }
-function dt(e) {
+function mt(e) {
 	if (typeof e.allApplicableEffects == "function") return [...e.allApplicableEffects()];
 	let t = e.effects;
 	return t?.contents ?? (Array.isArray(t) ? t : []);
 }
-function ft(e) {
+function ht(e) {
 	return e.type === "enchantment" || e.isAppliedEnchantment === !0;
 }
-function pt(e) {
+function gt(e) {
 	let t = e.duration?.label;
 	if (!t) return "";
 	let n = String(t).trim();
 	return !n || /^(none|nenhum|permanent|permanente|indefinid)/i.test(n) ? "" : n;
 }
-function mt(e, t) {
+function _t(e, t) {
 	let n = e.parent;
 	return n && n !== t && n.name ? n.name : "";
 }
-function ht(e, t) {
+function vt(e, t) {
 	let n = { name: e.name }, r = y(e.img || e.icon);
 	r && (n.img = r), e.disabled && (n.disabled = !0), e.isSuppressed && (n.isSuppressed = !0), e.isTemporary && (n.isTemporary = !0);
-	let i = ut(e);
+	let i = pt(e);
 	i.length && (n.statuses = i);
-	let a = pt(e);
+	let a = gt(e);
 	a && (n.durationLabel = a);
-	let o = mt(e, t);
+	let o = _t(e, t);
 	return o && (n.source = o), n;
 }
-function gt(e) {
-	return dt(e).filter((e) => !e.disabled && !e.isSuppressed && e.name && !ft(e)).map((t) => ht(t, e)).filter((e) => {
+function yt(e) {
+	return mt(e).filter((e) => !e.disabled && !e.isSuppressed && e.name && !ht(e)).map((t) => vt(t, e)).filter((e) => {
 		let t = e.statuses ?? [];
 		return t.length !== 0 && !t.every((e) => e === "exhaustion");
 	}).map((e) => {
@@ -1315,18 +1321,18 @@ function gt(e) {
 		return e.img && (t.img = e.img), t;
 	});
 }
-function _t(e) {
-	return dt(e).filter((e) => e?.name && !ft(e)).map((t) => ht(t, e));
+function bt(e) {
+	return mt(e).filter((e) => e?.name && !ht(e)).map((t) => vt(t, e));
 }
-var Z, vt, yt = e((() => {
-	R(), je(), x(), Re(), Ve(), h(), Ue(), Ye(), Ze(), $e(), l(), st(), Z = /* @__PURE__ */ new Set([
+var X, Z, xt = e((() => {
+	R(), je(), x(), ze(), He(), h(), We(), Xe(), Qe(), et(), tt(), l(), lt(), X = /* @__PURE__ */ new Set([
 		"class",
 		"subclass",
 		"race",
 		"background"
-	]), vt = class {
+	]), Z = class {
 		constructor(e) {
-			this.apiClient = e, this.streams = /* @__PURE__ */ new Map(), this.activeSyncs = /* @__PURE__ */ new Set(), this.lastKnownDraft = /* @__PURE__ */ new Map(), this.saveQueues = /* @__PURE__ */ new Map(), this.debouncedActorUpdate = J(this._executeActorUpdate.bind(this), 1e3), this.debouncedItemUpdate = J(this._executeItemUpdate.bind(this), 1e3);
+			this.apiClient = e, this.streams = /* @__PURE__ */ new Map(), this.activeSyncs = /* @__PURE__ */ new Set(), this.lastKnownDraft = /* @__PURE__ */ new Map(), this.saveQueues = /* @__PURE__ */ new Map(), this.debouncedActorUpdate = ut(this._executeActorUpdate.bind(this), 1e3), this.debouncedItemUpdate = ut(this._executeItemUpdate.bind(this), 1e3);
 		}
 		notifyApiError(e, t, n) {
 			console.error(`Arthinfo Fichas | Falha ao ${e} a ficha ${n?.name || n?.id || "desconhecida"}:`, t), ui.notifications.error(`Arthinfo Fichas: erro ao ${e} a ficha ${n?.name || n?.id || ""}: ${t?.message || "erro desconhecido"}`);
@@ -1334,7 +1340,7 @@ var Z, vt, yt = e((() => {
 		async startListening(e) {
 			let t = a(e, "draftId");
 			if (t && !this.streams.has(e.id)) {
-				if (X(e, t)) {
+				if (Y(e, t)) {
 					console.warn(`Arthinfo Fichas | ${e.name} não inicia sync: a ficha ${t} já está vinculada a outro Ator.`);
 					return;
 				}
@@ -1348,23 +1354,23 @@ var Z, vt, yt = e((() => {
 					}
 					let n = await this.apiClient.openStream(t, async (t) => {
 						if (t.roll) {
-							await Le(e, t.roll), await Be(e, t.roll);
+							await Le(e, t.roll), await Ve(e, t.roll);
 							return;
 						}
 						if (t.itemEquip) {
-							await He(e, t.itemEquip);
+							await Ue(e, t.itemEquip);
 							return;
 						}
 						if (t.itemCast) {
-							await Je(e, t.itemCast);
+							await Ye(e, t.itemCast);
 							return;
 						}
 						if (t.rest) {
-							await Xe(e, t.rest);
+							await Ze(e, t.rest);
 							return;
 						}
 						if (t.spellSlot) {
-							await Qe(e, t.spellSlot);
+							await $e(e, t.spellSlot);
 							return;
 						}
 						if (t.sourceClientId === this.apiClient.clientId) {
@@ -1391,7 +1397,7 @@ var Z, vt, yt = e((() => {
 			t && (t.close(), this.streams.delete(e.id)), this.lastKnownDraft.delete(e.id);
 		}
 		async _applyRemoteDraft(e, t) {
-			let n = {}, r = at(e), i = foundry.utils.getProperty(t, "derivedStats.maxHp"), o = typeof i == "number" && i <= 0;
+			let n = {}, r = st(e), i = foundry.utils.getProperty(t, "derivedStats.maxHp"), o = typeof i == "number" && i <= 0;
 			for (let [r, i] of Object.entries(M)) {
 				if (r.startsWith("system.abilities") || N.has(r) || o && r.startsWith("system.attributes.hp.")) continue;
 				let a = foundry.utils.getProperty(t, i);
@@ -1413,16 +1419,16 @@ var Z, vt, yt = e((() => {
 				let o = Ee(a);
 				(e.system.skills?.[r]?.value ?? 0) !== o && (n[`system.skills.${r}.value`] = o);
 			}), Object.keys(n).length > 0 && await e.update(n), t.items && Array.isArray(t.items)) {
-				let n = t.items, r = e.items.contents, i = [], o = [], l = [];
+				let n = t.items.filter((e) => !K(e)), r = e.items.contents, i = [], o = [], l = [];
 				for (let e of n) {
-					let t = r.find((t) => a(t, "sourceId") === e._id || t.id === e._id), n = ct(foundry.utils.deepClone(e));
+					let t = r.find((t) => a(t, "sourceId") === e._id || t.id === e._id), n = dt(foundry.utils.deepClone(e));
 					if (t) {
-						let r = Y(t.toObject()), i = Y(n);
-						Z.has(r.type) && (r.system && delete r.system.advancement, i.system && delete i.system.advancement), i._id = r._id;
+						let r = J(t.toObject()), i = J(n);
+						X.has(r.type) && (r.system && delete r.system.advancement, i.system && delete i.system.advancement), i._id = r._id;
 						for (let e of [s, c]) r.flags?.[e] && delete r.flags[e], i.flags?.[e] && delete i.flags[e];
 						if (JSON.stringify(r) !== JSON.stringify(i)) {
 							let i = n;
-							i._id = t.id, Z.has(r.type) && i.system && delete i.system.advancement, foundry.utils.setProperty(i, `flags.${s}.sourceId`, e._id), o.push(i);
+							i._id = t.id, X.has(r.type) && i.system && delete i.system.advancement, foundry.utils.setProperty(i, `flags.${s}.sourceId`, e._id), o.push(i);
 						}
 					} else {
 						let t = n;
@@ -1430,18 +1436,19 @@ var Z, vt, yt = e((() => {
 					}
 				}
 				for (let e of r) {
+					if (K(e)) continue;
 					let t = a(e, "sourceId");
 					t && (n.some((e) => e._id === t) || l.push(e.id));
 				}
 				l.length > 0 && await e.deleteEmbeddedDocuments("Item", l), i.length > 0 && await e.createEmbeddedDocuments("Item", i), o.length > 0 && await e.updateEmbeddedDocuments("Item", o);
 			}
 			try {
-				await it(e);
+				await ot(e);
 			} catch (e) {
 				console.warn("Arthinfo Fichas | Não foi possível reparar o PV da classe:", e);
 			}
 			try {
-				await ot(e, r);
+				await ct(e, r);
 			} catch (e) {
 				console.warn("Arthinfo Fichas | Não foi possível encher o PV do Ator:", e);
 			}
@@ -1475,7 +1482,7 @@ var Z, vt, yt = e((() => {
 		async handleActorUpdate(e, t) {
 			if (this.activeSyncs.has(e.id)) return;
 			let n = a(e, "draftId");
-			n && (X(e, n) || this.debouncedActorUpdate(e, n));
+			n && (Y(e, n) || this.debouncedActorUpdate(e, n));
 		}
 		_overlayActorOntoDraft(e, t) {
 			let n = !(foundry.utils.getProperty(e, "system.attributes.hp.max") > 0);
@@ -1501,7 +1508,7 @@ var Z, vt, yt = e((() => {
 				let e = I.find(({ foundry: e }) => e === r);
 				e && foundry.utils.setProperty(t, "spellcasting.ability", e.firebase);
 			}
-			foundry.utils.setProperty(t, "concept.portraitUrl", lt(e.img)), t.conditions = gt(e), t.effects = _t(e), t.traits = Se(e), t.foundryIdentity = A(e);
+			foundry.utils.setProperty(t, "concept.portraitUrl", ft(e.img)), t.conditions = yt(e), t.effects = bt(e), t.traits = Se(e), t.foundryIdentity = A(e);
 			let i = we(e);
 			t.identity = {
 				...t.identity ?? {},
@@ -1513,10 +1520,10 @@ var Z, vt, yt = e((() => {
 		}
 		_overlayItemsOntoDraft(e, t) {
 			let n = [];
-			for (let t of e.items) try {
+			for (let t of e.items) if (!K(t)) try {
 				let e = t.toObject();
 				e._id = a(t, "sourceId") || e._id, e.img = y(e.img);
-				let r = Y(e);
+				let r = J(e);
 				[
 					"class",
 					"subclass",
@@ -1532,7 +1539,7 @@ var Z, vt, yt = e((() => {
 					system: t.type === "class" ? { levels: t.system?.levels } : {}
 				});
 			}
-			t.items = n, t.foundryIdentity = A(e), t.conditions = gt(e), t.effects = _t(e);
+			t.items = n, t.foundryIdentity = A(e), t.conditions = yt(e), t.effects = bt(e);
 		}
 		_saveDraftFromActor(e, t, n, r) {
 			let i = (this.saveQueues.get(e.id) ?? Promise.resolve()).then(() => this._saveDraftFromActorNow(e, t, n, r)), a = i.catch(() => {});
@@ -1588,7 +1595,7 @@ var Z, vt, yt = e((() => {
 		async handleItemUpdate(e) {
 			if (this.activeSyncs.has(e.id)) return;
 			let t = a(e, "draftId");
-			t && (X(e, t) || this.debouncedItemUpdate(e, t));
+			t && (Y(e, t) || this.debouncedItemUpdate(e, t));
 		}
 		async _executeItemUpdate(e, t) {
 			if (!this.lastKnownDraft.has(e.id)) {
@@ -1603,7 +1610,7 @@ var Z, vt, yt = e((() => {
 }));
 //#endregion
 //#region src/legacy-migration.js
-function bt(e) {
+function St(e) {
 	if (typeof e != "string") return e;
 	try {
 		return JSON.parse(e);
@@ -1611,31 +1618,31 @@ function bt(e) {
 		return e;
 	}
 }
-function xt(e, t) {
+function Ct(e, t) {
 	let n = `${c}.${t}`, r = e.settings?.storage?.get?.("world"), i = r?.getSetting?.(n) ?? r?.find?.((e) => e.key === n);
-	if (i) return bt(i.value);
+	if (i) return St(i.value);
 }
-function St(e) {
+function wt(e) {
 	return e == null || e === "" || Array.isArray(e) && e.length === 0;
 }
-async function Ct(e) {
+async function Tt(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
-	for (let n of kt) try {
-		let r = xt(e, n);
-		if (St(r)) continue;
+	for (let n of jt) try {
+		let r = Ct(e, n);
+		if (wt(r)) continue;
 		let i = e.settings.get(s, n);
-		if (!St(i) && i !== At[n] || i === r) continue;
+		if (!wt(i) && i !== Mt[n] || i === r) continue;
 		await e.settings.set(s, n, r), t += 1;
 	} catch (e) {
 		console.warn(`Arthinfo Fichas | Não consegui migrar a configuração "${n}" do módulo antigo.`, e);
 	}
 	return t;
 }
-async function wt(e) {
+async function Et(e) {
 	if (!e.user?.isGM) return 0;
 	let t = e.settings?.storage?.get?.("world"), n = 0;
-	for (let e of [s, c]) for (let r of jt) {
+	for (let e of [s, c]) for (let r of Nt) {
 		let i = `${e}.${r}`;
 		try {
 			let e = t?.getSetting?.(i) ?? t?.find?.((e) => e.key === i);
@@ -1647,7 +1654,7 @@ async function wt(e) {
 	}
 	return n;
 }
-async function Tt(e) {
+async function Dt(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
 	for (let n of e.actors ?? []) {
@@ -1661,11 +1668,11 @@ async function Tt(e) {
 	}
 	return t;
 }
-function Et(e, t, n) {
+function Ot(e, t, n) {
 	let r = globalThis.foundry?.data?.operators?.ForcedDeletion;
 	r ? e[`${t}.${n}`] = new r() : e[`${t}.-=${n}`] = null;
 }
-async function Dt(e) {
+async function kt(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
 	for (let n of e.actors ?? []) {
@@ -1676,7 +1683,7 @@ async function Dt(e) {
 			let r = { _id: t.id };
 			for (let e of Q) {
 				let i = n[e];
-				i != null && (Et(r, `flags.${c}`, e), t.flags?.[s]?.[e] ?? (r[`flags.${s}.${e}`] = i));
+				i != null && (Ot(r, `flags.${c}`, e), t.flags?.[s]?.[e] ?? (r[`flags.${s}.${e}`] = i));
 			}
 			Object.keys(r).length > 1 && e.push(r);
 		}
@@ -1688,21 +1695,21 @@ async function Dt(e) {
 	}
 	return t;
 }
-async function Ot(e) {
-	await wt(e);
-	let t = await Ct(e), n = await Tt(e), r = await Dt(e);
+async function At(e) {
+	await Et(e);
+	let t = await Tt(e), n = await Dt(e), r = await kt(e);
 	return (t || n || r) && console.log(`Arthinfo Fichas | Migração do módulo antigo: ${n} vínculo(s) de ficha, ${r} item(ns) e ${t} configuração(ões).`), {
 		settings: t,
 		links: n,
 		items: r
 	};
 }
-var kt, At, jt, Q, Mt = e((() => {
-	l(), kt = ["mesaKey", "compendiumSyncSelection"], At = {}, jt = ["compendiumSyncKey", "backendUrl"], Q = ["sourceId", "catalogKey"];
-})), $, Nt = e((() => {
+var jt, Mt, Nt, Q, Pt = e((() => {
+	l(), jt = ["mesaKey", "compendiumSyncSelection"], Mt = {}, Nt = ["compendiumSyncKey", "backendUrl"], Q = ["sourceId", "catalogKey"];
+})), $, Ft = e((() => {
 	$ = "https://arthinfo-api.arthur-paraiso-mar.workers.dev";
-})), Pt = /* @__PURE__ */ t((() => {
-	i(), h(), fe(), ve(), yt(), Mt(), l(), Nt();
+})), It = /* @__PURE__ */ t((() => {
+	i(), h(), fe(), ve(), xt(), Pt(), tt(), l(), Ft();
 	var e = null, t = null;
 	function n(e) {
 		let t = game.settings.get(s, e);
@@ -1780,7 +1787,7 @@ var kt, At, jt, Q, Mt = e((() => {
 		});
 	}), Hooks.once("ready", async () => {
 		let i = game.modules.get(s);
-		i && (i.api = { openCompendiumSync: c }), await Ot(game);
+		i && (i.api = { openCompendiumSync: c }), await At(game);
 		let a = n("mesaKey");
 		if (!a) {
 			console.warn("Arthinfo Fichas | Chave da mesa não configurada nas configurações do módulo.");
@@ -1789,7 +1796,7 @@ var kt, At, jt, Q, Mt = e((() => {
 		e = new r({
 			mesaKey: a,
 			baseUrl: $
-		}), t = new vt(e), await d(), game.actors.forEach((e) => t.startListening(e)), console.log("Arthinfo Fichas | Backend configurado e ouvindo atores vinculados."), i && (i.api.apiClient = e, i.api.syncManager = t);
+		}), t = new Z(e), await d(), game.actors.forEach((e) => t.startListening(e)), console.log("Arthinfo Fichas | Backend configurado e ouvindo atores vinculados."), i && (i.api.apiClient = e, i.api.syncManager = t);
 	}), Hooks.on("updateActor", (e, n, r, i) => {
 		i === game.user.id && t && t.handleActorUpdate(e, n);
 	}), Hooks.on("preCreateActor", (e, t, n, r) => {
@@ -1807,11 +1814,11 @@ var kt, At, jt, Q, Mt = e((() => {
 	}), Hooks.on("deleteActor", (e, n, r) => {
 		r === game.user.id && t && t.stopListening(e);
 	}), Hooks.on("createItem", (e, n, r) => {
-		r === game.user.id && t && e.parent && t.handleItemUpdate(e.parent);
+		r === game.user.id && t && e.parent && !K(e) && t.handleItemUpdate(e.parent);
 	}), Hooks.on("updateItem", (e, n, r, i) => {
-		i === game.user.id && t && e.parent && t.handleItemUpdate(e.parent);
+		i === game.user.id && t && e.parent && !K(e) && t.handleItemUpdate(e.parent);
 	}), Hooks.on("deleteItem", (e, n, r) => {
-		r === game.user.id && t && e.parent && t.handleItemUpdate(e.parent);
+		r === game.user.id && t && e.parent && !K(e) && t.handleItemUpdate(e.parent);
 	});
 	function _(e) {
 		let t = e?.parent;
@@ -1853,4 +1860,4 @@ var kt, At, jt, Q, Mt = e((() => {
 	});
 }));
 //#endregion
-export default Pt();
+export default It();
