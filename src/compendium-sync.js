@@ -7,8 +7,15 @@ import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
 
 const BATCH_SIZE = 50;
 
+// Compêndios do próprio sistema (dnd5e) carregam o SRD, que já está no catálogo
+// público do site (FDD-74): não são oferecidos pra sincronizar. O que vai pra mesa
+// é o conteúdo de fora do SRD — módulos de livros e compêndios do mundo.
+export function isSystemPack(pack) {
+  return pack?.metadata?.packageType === 'system';
+}
+
 export function listItemCompendia() {
-  return game.packs.filter((pack) => pack.documentName === 'Item');
+  return game.packs.filter((pack) => pack.documentName === 'Item' && !isSystemPack(pack));
 }
 
 /**
