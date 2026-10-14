@@ -46,6 +46,93 @@ const COMPENDIUM_SYNC_STYLES = `
   }
 `;
 
+/**
+ * Quantos itens o "Limpar compêndio" vai remover: todos os da mesa, ou só os
+ * de um pack (packId vazio = todos). `summary` é o retorno de getMyCompendium.
+ */
+export function countClearTargets(summary, packId = '') {
+  const packs = Array.isArray(summary?.packs) ? summary.packs : [];
+  if (!packId) return Number(summary?.total) || packs.reduce((sum, pack) => sum + (pack.count || 0), 0);
+  return packs.find((pack) => pack.packId === packId)?.count ?? 0;
+}
+
+/**
+ * "Limpar compêndio" (FDD-74): apaga só o que a mesa da chave disponibilizou,
+ * nunca o catálogo público. Mostra quantos itens saem antes de confirmar.
+ */
+export async function clearMesaCompendium(apiClient) {
+  const { DialogV2 } = foundry.applications.api;
+  let summary;
+  try {
+    summary = await apiClient.getMyCompendium();
+  } catch (error) {
+    console.error('Arthinfo Fichas | Erro ao consultar o compêndio da mesa:', error);
+    ui.notifications.error(
+      error?.status === 401
+        ? 'Arthinfo Fichas: chave da mesa inválida ou revogada.'
+        : `Arthinfo Fichas: erro ao consultar o compêndio da mesa: ${error.message}`,
+    );
+    return;
+  }
+
+  if (!summary.total) {
+    ui.notifications.info('Arthinfo Fichas: sua mesa não tem itens de compêndio sincronizados.');
+    return;
+  }
+
+  const options = [
+    `<option value="">Tudo (${summary.total} itens)</option>`,
+    ...summary.packs.map(
+      (pack) => `<option value="${escapeHtml(pack.packId)}">${escapeHtml(pack.packId)} (${pack.count})</option>`,
+    ),
+  ].join('');
+
+  const chosen = await DialogV2.wait({
+    window: { title: 'Limpar compêndio da mesa' },
+    content: `
+      <form class="rs-compendium-clear">
+        <p>Remove do site os itens de compêndio que <strong>você sincronizou para a sua mesa</strong>.
+        O catálogo público (SRD) não é afetado. Não dá para desfazer — só sincronizando de novo.</p>
+        <label>O que limpar:
+          <select name="packId" style="width:100%;margin-top:4px;">${options}</select>
+        </label>
+      </form>`,
+    buttons: [
+      {
+        action: 'clear',
+        label: 'Limpar',
+        icon: 'fas fa-trash',
+        callback: (event, button, dialog) => dialog.element.querySelector('select[name="packId"]')?.value ?? '',
+      },
+      { action: 'cancel', label: 'Cancelar' },
+    ],
+    rejectClose: false,
+  });
+
+  // wait devolve o retorno do callback do botão; Cancelar/fechar devolve a
+  // própria action ('cancel') ou null. Só string de pack (ou '') é confirmação.
+  if (chosen === null || chosen === undefined || chosen === 'cancel') return;
+
+  const count = countClearTargets(summary, chosen);
+  const target = chosen ? `do pack ${chosen}` : 'de toda a mesa';
+  const confirmed = await DialogV2.confirm({
+    window: { title: 'Confirmar limpeza' },
+    content: `<p>Remover <strong>${count} itens</strong> ${escapeHtml(target)}? Isso não pode ser desfeito.</p>`,
+    yes: { label: `Remover ${count} itens`, icon: 'fas fa-trash' },
+    no: { label: 'Voltar' },
+    rejectClose: false,
+  });
+  if (!confirmed) return;
+
+  try {
+    const result = await apiClient.clearMyCompendium(chosen);
+    ui.notifications.info(`Arthinfo Fichas: ${result.deleted} itens removidos do compêndio da mesa.`);
+  } catch (error) {
+    console.error('Arthinfo Fichas | Erro ao limpar o compêndio da mesa:', error);
+    ui.notifications.error(`Arthinfo Fichas: erro ao limpar o compêndio: ${error.message}`);
+  }
+}
+
 export function hasCompendiumPublishAck(root) {
   return !!root?.querySelector?.('input[name="ackPublish"]:checked');
 }
@@ -179,7 +266,8 @@ export class CompendiumSyncDialog {
       <style>${COMPENDIUM_SYNC_STYLES}</style>
       <form class="rs-compendium-sync">
         <p>Escolha os compêndios de itens a sincronizar (ex: um compêndio próprio,
-        curado com os itens liberados na sua mesa):</p>
+        curado com os itens liberados na sua mesa). Inclua o das <strong>classes</strong>: sem ele
+        o builder do site continua no SRD. Depois confira o total na página da mesa, no site.</p>
         <div style="max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; column-count: 1; column-width: auto;">`;
 
     for (const group of groups) {
@@ -214,7 +302,7 @@ export class CompendiumSyncDialog {
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:0.9em;line-height:1.4;">
           <input type="checkbox" name="ackPublish" style="margin-top:3px;" />
-          <span>Entendo que o conteúdo enviado pode aparecer no site da mesa e, se eu usar a chave de catálogo compartilhado, no Compêndio público. Jogadores da mesa só consomem a ficha; não republicam o pack.</span>
+          <span>Entendo que o conteúdo enviado aparece no site para a minha mesa (não no catálogo público). Jogadores da mesa só consomem a ficha; não republicam o pack.</span>
         </label>
       </form>`;
 
@@ -263,6 +351,12 @@ export class CompendiumSyncDialog {
               ui.notifications.error(`Arthinfo Fichas: erro ao sincronizar compêndio: ${error.message}`);
             }
           },
+        },
+        {
+          action: 'clearMesa',
+          label: 'Limpar compêndio',
+          icon: 'fas fa-trash',
+          callback: () => clearMesaCompendium(apiClient),
         },
         {
           action: 'cancel',
