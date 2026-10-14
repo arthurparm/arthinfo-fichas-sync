@@ -1621,11 +1621,11 @@ function St(e) {
 async function Ct(e) {
 	if (!e.user?.isGM) return 0;
 	let t = 0;
-	for (let n of Dt) try {
+	for (let n of kt) try {
 		let r = xt(e, n);
 		if (St(r)) continue;
 		let i = e.settings.get(s, n);
-		if (!St(i) && i !== Ot[n] || i === r) continue;
+		if (!St(i) && i !== At[n] || i === r) continue;
 		await e.settings.set(s, n, r), t += 1;
 	} catch (e) {
 		console.warn(`Arthinfo Fichas | Não consegui migrar a configuração "${n}" do módulo antigo.`, e);
@@ -1635,7 +1635,7 @@ async function Ct(e) {
 async function wt(e) {
 	if (!e.user?.isGM) return 0;
 	let t = e.settings?.storage?.get?.("world"), n = 0;
-	for (let e of [s, c]) for (let r of Q) {
+	for (let e of [s, c]) for (let r of jt) {
 		let i = `${e}.${r}`;
 		try {
 			let e = t?.getSetting?.(i) ?? t?.find?.((e) => e.key === i);
@@ -1661,20 +1661,48 @@ async function Tt(e) {
 	}
 	return t;
 }
-async function Et(e) {
+function Et(e, t, n) {
+	let r = globalThis.foundry?.data?.operators?.ForcedDeletion;
+	r ? e[`${t}.${n}`] = new r() : e[`${t}.-=${n}`] = null;
+}
+async function Dt(e) {
+	if (!e.user?.isGM) return 0;
+	let t = 0;
+	for (let n of e.actors ?? []) {
+		let e = [];
+		for (let t of n.items ?? []) {
+			let n = t.flags?.[c];
+			if (!n) continue;
+			let r = { _id: t.id };
+			for (let e of Q) {
+				let i = n[e];
+				i != null && (Et(r, `flags.${c}`, e), t.flags?.[s]?.[e] ?? (r[`flags.${s}.${e}`] = i));
+			}
+			Object.keys(r).length > 1 && e.push(r);
+		}
+		if (e.length) try {
+			await n.updateEmbeddedDocuments("Item", e), t += e.length;
+		} catch (e) {
+			console.warn(`Arthinfo Fichas | Não consegui migrar os itens de "${n.name}".`, e);
+		}
+	}
+	return t;
+}
+async function Ot(e) {
 	await wt(e);
-	let t = await Ct(e), n = await Tt(e);
-	return (t || n) && console.log(`Arthinfo Fichas | Migração do módulo antigo: ${n} vínculo(s) de ficha e ${t} configuração(ões).`), {
+	let t = await Ct(e), n = await Tt(e), r = await Dt(e);
+	return (t || n || r) && console.log(`Arthinfo Fichas | Migração do módulo antigo: ${n} vínculo(s) de ficha, ${r} item(ns) e ${t} configuração(ões).`), {
 		settings: t,
-		links: n
+		links: n,
+		items: r
 	};
 }
-var Dt, Ot, Q, kt = e((() => {
-	l(), Dt = ["mesaKey", "compendiumSyncSelection"], Ot = {}, Q = ["compendiumSyncKey", "backendUrl"];
-})), $, At = e((() => {
+var kt, At, jt, Q, Mt = e((() => {
+	l(), kt = ["mesaKey", "compendiumSyncSelection"], At = {}, jt = ["compendiumSyncKey", "backendUrl"], Q = ["sourceId", "catalogKey"];
+})), $, Nt = e((() => {
 	$ = "https://arthinfo-api.arthur-paraiso-mar.workers.dev";
-})), jt = /* @__PURE__ */ t((() => {
-	i(), h(), fe(), ve(), yt(), kt(), l(), At();
+})), Pt = /* @__PURE__ */ t((() => {
+	i(), h(), fe(), ve(), yt(), Mt(), l(), Nt();
 	var e = null, t = null;
 	function n(e) {
 		let t = game.settings.get(s, e);
@@ -1752,7 +1780,7 @@ var Dt, Ot, Q, kt = e((() => {
 		});
 	}), Hooks.once("ready", async () => {
 		let i = game.modules.get(s);
-		i && (i.api = { openCompendiumSync: c }), await Et(game);
+		i && (i.api = { openCompendiumSync: c }), await Ot(game);
 		let a = n("mesaKey");
 		if (!a) {
 			console.warn("Arthinfo Fichas | Chave da mesa não configurada nas configurações do módulo.");
@@ -1825,4 +1853,4 @@ var Dt, Ot, Q, kt = e((() => {
 	});
 }));
 //#endregion
-export default jt();
+export default Pt();
