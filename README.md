@@ -55,7 +55,7 @@ isso funcionar:
    ```js
    game.modules.get('arthinfo-fichas-sync').api.openCompendiumSync();
    ```
-5. Marque os compêndios que quer sincronizar e confirme. A sincronização
+5. Marque os compêndios que quer sincronizar (os compêndios do sistema dnd5e não aparecem: o SRD já está no catálogo público do site) e confirme. A sincronização
    usa a chave da mesa, roda em lotes (útil se o compêndio for grande) e
    mostra o progresso via notificação.
 
