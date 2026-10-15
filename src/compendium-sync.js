@@ -70,6 +70,24 @@ export function absoluteImg(img) {
   }
 }
 
+// No compêndio do backend a img é caminho da raiz do Foundry ("/icons/..."), não
+// URL absoluta: gravar "http://localhost:30000/..." na coluna `img` faz todo
+// jogador disparar GET no localhost dele (FDD-18). O site monta a imagem a
+// partir do caminho. O retrato do Ator continua usando absoluteImg — lá a URL
+// completa é a foto de verdade.
+export function compendiumImg(img) {
+  if (!img) return img;
+  const raw = String(img).trim();
+  if (/^data:/i.test(raw)) return raw;
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin === window.location.origin) return `${url.pathname}${url.search}`;
+    return url.href;
+  } catch {
+    return raw;
+  }
+}
+
 function chunk(array, size) {
   const chunks = [];
   for (let i = 0; i < array.length; i += size) {
@@ -96,7 +114,7 @@ export async function syncCompendiums(apiClient, packIds, onProgress) {
       packId,
       foundryId: doc.id,
       name: doc.name,
-      img: absoluteImg(doc.img),
+      img: compendiumImg(doc.img),
       itemType: doc.type,
       catalogKey: readFlag(doc, 'catalogKey') ?? null,
       system: doc.toObject().system,

@@ -40,3 +40,20 @@ describe('listItemCompendia (FDD-74)', () => {
     expect(isSystemPack(undefined)).toBe(false);
   });
 });
+
+describe('compendiumImg (FDD-18)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('grava caminho da raiz, nunca o host do mundo (localhost:30000)', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://localhost:30000' } });
+    const { compendiumImg } = await import('./compendium-sync.js');
+    expect(compendiumImg('icons/magic/fire.webp')).toBe('/icons/magic/fire.webp');
+    expect(compendiumImg('http://localhost:30000/icons/a.webp')).toBe('/icons/a.webp');
+    expect(compendiumImg('https://cdn.exemplo.com/a.png')).toBe('https://cdn.exemplo.com/a.png');
+    expect(compendiumImg('data:image/png;base64,AAAA')).toBe('data:image/png;base64,AAAA');
+    expect(compendiumImg('')).toBe('');
+    expect(compendiumImg(undefined)).toBeUndefined();
+  });
+});
