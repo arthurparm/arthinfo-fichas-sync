@@ -3,6 +3,7 @@ import {
   ATTR_MAP,
   ONE_WAY_FOUNDRY_TO_SITE,
   foundrySkillValueToProficiencyLevel,
+  mergeFoundryBiography,
   proficiencyLevelToFoundrySkillValue,
   readActorSenses,
   readActorTraits,
@@ -249,5 +250,44 @@ describe('readFoundryIdentity', () => {
       hitDiceValue: 3,
       hitDiceMax: 5,
     });
+  });
+});
+
+describe('ONE_WAY_FOUNDRY_TO_SITE — CA, slots e recursos (FDD-38)', () => {
+  it('marca CA, slots max e recursos max como Foundry -> site só', () => {
+    for (const path of [
+      'system.attributes.ac.value',
+      'system.spells.spell1.max',
+      'system.spells.spell9.max',
+      'system.spells.pact.max',
+      'system.resources.primary.max',
+      'system.resources.secondary.max',
+      'system.resources.tertiary.max',
+    ]) {
+      expect(ONE_WAY_FOUNDRY_TO_SITE.has(path)).toBe(true);
+    }
+    expect(ONE_WAY_FOUNDRY_TO_SITE.has('system.spells.spell1.value')).toBe(false);
+    expect(ONE_WAY_FOUNDRY_TO_SITE.has('system.resources.primary.value')).toBe(false);
+  });
+});
+
+describe('mergeFoundryBiography (FDD-50)', () => {
+  it('primeira leitura: só preenche campo vazio do site', () => {
+    expect(
+      mergeFoundryBiography({ a: 'site', b: '', c: undefined }, { a: 'foundry', b: 'foundry', c: 'foundry' }, undefined),
+    ).toEqual({ a: 'site', b: 'foundry', c: 'foundry' });
+  });
+
+  it('depois: só o campo que mudou no Foundry vai pro site', () => {
+    expect(
+      mergeFoundryBiography({ a: 'site-a', b: 'site-b' }, { a: 'f1', b: 'f2-novo' }, { a: 'f1', b: 'f2' }),
+    ).toEqual({ a: 'site-a', b: 'f2-novo' });
+  });
+
+  it('campo vazio no Foundry nunca limpa o do site e a entrada não é mutada', () => {
+    const site = { a: 'site' };
+    expect(mergeFoundryBiography(site, {}, { a: 'antes' })).toEqual({ a: 'site' });
+    expect(site).toEqual({ a: 'site' });
+    expect(mergeFoundryBiography(undefined, { a: 'x' }, undefined)).toEqual({ a: 'x' });
   });
 });
