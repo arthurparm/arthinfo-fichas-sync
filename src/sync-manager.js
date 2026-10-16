@@ -7,6 +7,7 @@ import {
   SKILL_KEY_MAP,
   readActorTraits,
   readFoundryBiography,
+  mergeFoundryBiography,
   readFoundryIdentity,
   foundrySkillValueToProficiencyLevel,
   proficiencyLevelToFoundrySkillValue,
@@ -181,6 +182,8 @@ export class SyncManager {
     // que o Foundry não conhece (concept, identity, equipment, etc.) ao
     // gravar via PUT, que substitui o registro inteiro no backend.
     this.lastKnownDraft = new Map();
+    // Última biografia do Ator vista por sync (FDD-50) — ver mergeFoundryBiography.
+    this.lastBiography = new Map();
     // Cauda de PUTs por ator: o debounce do Ator e o de itens são separados,
     // então dois PUT full-replace podem disparar juntos (FDD-36). Cada um
     // clonaria a mesma base e o mais lento sobrescreveria o mais rápido.
@@ -284,6 +287,7 @@ export class SyncManager {
       this.streams.delete(actor.id);
     }
     this.lastKnownDraft.delete(actor.id);
+    this.lastBiography.delete(actor.id);
   }
 
   async _applyRemoteDraft(actor, data) {
@@ -549,9 +553,13 @@ export class SyncManager {
     // listas/objetos, só Foundry -> site (evita eco de Set vs array).
     base.traits = readActorTraits(actor);
     base.foundryIdentity = readFoundryIdentity(actor);
+    // FDD-50: biografia do Foundry só entra quando mudou lá (ou preenche vazio na
+    // primeira leitura); nunca reescreve a cada PUT o texto que o site editou.
     const biography = readFoundryBiography(actor);
-    base.identity = { ...(base.identity ?? {}), ...biography.identity };
-    base.description = { ...(base.description ?? {}), ...biography.description };
+    const seen = this.lastBiography.get(actor.id);
+    this.lastBiography.set(actor.id, biography);
+    base.identity = mergeFoundryBiography(base.identity, biography.identity, seen?.identity);
+    base.description = mergeFoundryBiography(base.description, biography.description, seen?.description);
   }
 
   _overlayItemsOntoDraft(actor, base) {
