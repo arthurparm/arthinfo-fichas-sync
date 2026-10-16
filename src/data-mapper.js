@@ -97,11 +97,32 @@ export const ATTR_MAP = {
 // exatamente o que aconteceu com hp.max antes desta correção. hp.value/
 // hp.temp ficam de fora desta lista: são números que o jogador ajusta
 // direto (dano sofrido, PV temporário), não algo "calculado" que só o
-// Foundry deveria ter autoridade sobre.
+// Foundry deveria ter autoridade sobre. Mesmo raciocínio pra
+// spellSlots.*.current e resources.*.current (gasto/recuperado em jogo).
+//
+// ac.value / spellN.max / pact.max / resources.*.max (FDD-38): também
+// derivados no Foundry (escudo, efeito ativo, feat que dá slot ou recurso
+// extra) e recalculados no site só como fallback pra ficha sem Ator. O builder
+// ainda grava esses valores derivados no draft ao salvar; sem estar aqui, um
+// PUT do site rebaixava a CA ou o máximo que o Foundry já tinha calculado certo.
 export const ONE_WAY_FOUNDRY_TO_SITE = new Set([
   'system.attributes.hp.max',
   'system.attributes.movement.walk',
   'system.attributes.init.total',
+  'system.attributes.ac.value',
+  'system.spells.spell1.max',
+  'system.spells.spell2.max',
+  'system.spells.spell3.max',
+  'system.spells.spell4.max',
+  'system.spells.spell5.max',
+  'system.spells.spell6.max',
+  'system.spells.spell7.max',
+  'system.spells.spell8.max',
+  'system.spells.spell9.max',
+  'system.spells.pact.max',
+  'system.resources.primary.max',
+  'system.resources.secondary.max',
+  'system.resources.tertiary.max',
 ]);
 
 // Paths do ATTR_MAP cujo valor do site nunca pode ser vazio ao escrever no
@@ -349,6 +370,31 @@ export function readFoundryBiography(actor) {
   if (backstory) description.backstory = backstory;
 
   return { identity, description };
+}
+
+// Biografia Foundry -> site sem atropelar o que o site escreveu (FDD-50).
+// Antes, todo PUT do Ator (um ponto de HP, uma condição) copiava qualquer
+// texto não vazio do Ator por cima de identity/description do site, apagando
+// aparência e história editadas no builder.
+//   - Primeira leitura deste Ator na sessão (`seen` indefinido): o Foundry só
+//     preenche o que o site deixou vazio.
+//   - Depois: um campo só vai pro site quando mudou no Foundry desde a última
+//     leitura — editar a biografia lá é um ato deliberado e vence; o resto do
+//     tempo o site fica como está.
+// Campo vazio no Foundry nunca limpa o do site (igual a readFoundryBiography).
+export function mergeFoundryBiography(site, foundry, seen) {
+  const merged = { ...(site ?? {}) };
+  for (const [key, value] of Object.entries(foundry ?? {})) {
+    if (seen === undefined) {
+      const current = merged[key];
+      if (current === undefined || current === null || String(current).trim() === '') {
+        merged[key] = value;
+      }
+    } else if (seen[key] !== value) {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 /**

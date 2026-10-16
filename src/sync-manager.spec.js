@@ -705,3 +705,108 @@ describe('SyncManager — magia em cache do dnd5e fica fora da ficha (FDD-117)',
     expect(actor.deleteEmbeddedDocuments).not.toHaveBeenCalled();
   });
 });
+
+describe('SyncManager._applyRemoteDraft — CA, slots max e recursos max são Foundry -> site só (FDD-38)', () => {
+  it('não rebaixa CA, máximo de slot nem de recurso do Ator com o derivado do site', async () => {
+    const actor = makeActor();
+    actor.system.attributes.ac = { value: 18 };
+    actor.system.spells = { spell1: { value: 2, max: 4 }, pact: { value: 1, max: 2 } };
+    actor.system.resources = { primary: { value: 1, max: 3, label: 'Fúria' } };
+    const manager = new SyncManager({});
+
+    await manager._applyRemoteDraft(actor, {
+      derivedStats: { ac: 15 },
+      spellSlots: { level1: { current: 1, max: 2 }, pact: { current: 0, max: 1 } },
+      resources: { primary: { current: 0, max: 1, name: 'Fúria' } },
+    });
+
+    for (const [update] of actor.update.mock.calls) {
+      expect(update).not.toHaveProperty('system.attributes.ac.value');
+      expect(update).not.toHaveProperty('system.spells.spell1.max');
+      expect(update).not.toHaveProperty('system.spells.pact.max');
+      expect(update).not.toHaveProperty('system.resources.primary.max');
+    }
+  });
+
+  it('o gasto em jogo (current) continua indo do site pro Ator', async () => {
+    const actor = makeActor();
+    actor.system.spells = { spell1: { value: 4, max: 4 } };
+    actor.system.resources = { primary: { value: 3, max: 3, label: 'Fúria' } };
+    const manager = new SyncManager({});
+
+    await manager._applyRemoteDraft(actor, {
+      spellSlots: { level1: { current: 2, max: 4 } },
+      resources: { primary: { current: 1, max: 3, name: 'Fúria' } },
+    });
+
+    const merged = Object.assign({}, ...actor.update.mock.calls.map(([update]) => update));
+    expect(merged['system.spells.spell1.value']).toBe(2);
+    expect(merged['system.resources.primary.value']).toBe(1);
+  });
+});
+
+describe('SyncManager._overlayActorOntoDraft — biografia não atropela o site (FDD-50)', () => {
+  function actorWithBio(details) {
+    const actor = makeActor();
+    actor.name = 'Karon';
+    actor.img = '';
+    actor.classes = {};
+    actor.items = [];
+    actor.system.details = details;
+    return actor;
+  }
+
+  it('um ponto de HP no Foundry não apaga a história editada no site', () => {
+    const actor = actorWithBio({ biography: { value: '<p>Texto antigo do Foundry</p>' }, appearance: 'Cicatriz' });
+    const manager = new SyncManager({});
+    const base = {
+      concept: { name: 'Karon' },
+      identity: { appearance: 'Alto e forte' },
+      description: { backstory: 'História escrita no builder' },
+    };
+
+    manager._overlayActorOntoDraft(actor, base); // primeira leitura
+    actor.system.attributes.hp.value = 5;
+    manager._overlayActorOntoDraft(actor, base); // update de HP
+
+    expect(base.identity.appearance).toBe('Alto e forte');
+    expect(base.description.backstory).toBe('História escrita no builder');
+  });
+
+  it('na primeira leitura o Foundry preenche o que o site deixou vazio', () => {
+    const actor = actorWithBio({ biography: { value: '<p>Da mesa</p>' }, appearance: 'Cicatriz' });
+    const manager = new SyncManager({});
+    const base = { concept: { name: 'Karon' }, identity: { appearance: '' }, description: {} };
+
+    manager._overlayActorOntoDraft(actor, base);
+
+    expect(base.identity.appearance).toBe('Cicatriz');
+    expect(base.description.backstory).toBe('<p>Da mesa</p>');
+  });
+
+  it('editar a biografia no Foundry depois da primeira leitura vence e vai pro site', () => {
+    const actor = actorWithBio({ biography: { value: '<p>v1</p>' } });
+    const manager = new SyncManager({});
+    const base = { concept: { name: 'Karon' }, identity: {}, description: { backstory: 'do site' } };
+
+    manager._overlayActorOntoDraft(actor, base);
+    expect(base.description.backstory).toBe('do site');
+
+    actor.system.details.biography.value = '<p>v2 editada no Foundry</p>';
+    manager._overlayActorOntoDraft(actor, base);
+
+    expect(base.description.backstory).toBe('<p>v2 editada no Foundry</p>');
+  });
+
+  it('stopListening esquece a última biografia (relink recomeça preenchendo só o vazio)', () => {
+    const actor = actorWithBio({ biography: { value: '<p>Foundry</p>' } });
+    actor.id = 'actor-bio';
+    const manager = new SyncManager({});
+    manager._overlayActorOntoDraft(actor, { concept: {}, identity: {}, description: {} });
+    expect(manager.lastBiography.has('actor-bio')).toBe(true);
+
+    manager.stopListening(actor);
+
+    expect(manager.lastBiography.has('actor-bio')).toBe(false);
+  });
+});
