@@ -253,6 +253,35 @@ describe('readFoundryIdentity', () => {
   });
 });
 
+describe('readFoundryIdentity — id em details.race/background (FDD-68)', () => {
+  const base = { itemTypes: {}, classes: [], system: { traits: {}, attributes: {} } };
+
+  it('resolve o id guardado em details pelo nome do item do Ator', () => {
+    const actor = {
+      ...base,
+      items: { get: (id) => (id === 'aaaaaaaaaaaaaaaa' ? { name: 'Soldado' } : undefined) },
+      system: { ...base.system, details: { background: 'aaaaaaaaaaaaaaaa' } },
+    };
+    expect(readFoundryIdentity(actor).backgroundName).toBe('Soldado');
+  });
+
+  it('id sem item correspondente nao vaza como nome', () => {
+    const actor = {
+      ...base,
+      items: { get: () => undefined },
+      system: { ...base.system, details: { race: 'rOtMREqTOmhRgFTn', background: 'rOtMREqTOmhRgFTn' } },
+    };
+    const identity = readFoundryIdentity(actor);
+    expect(identity.raceName).toBe('');
+    expect(identity.backgroundName).toBe('');
+  });
+
+  it('texto livre antigo continua valendo', () => {
+    const actor = { ...base, system: { ...base.system, details: { race: 'Meio-elfo' } } };
+    expect(readFoundryIdentity(actor).raceName).toBe('Meio-elfo');
+  });
+});
+
 describe('ONE_WAY_FOUNDRY_TO_SITE — CA, slots e recursos (FDD-38)', () => {
   it('marca CA, slots max e recursos max como Foundry -> site só', () => {
     for (const path of [
