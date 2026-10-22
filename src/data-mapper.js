@@ -260,10 +260,17 @@ function itemsOfType(actor, type) {
   return list.filter((item) => item?.type === type);
 }
 
-function embeddedName(value) {
+// No dnd5e novo `details.race`/`details.background` guarda o ID do item (16
+// caracteres), não o nome. Resolve pelo item do Ator; id que não existe mais
+// (item removido) vira vazio em vez de vazar como se fosse o nome (FDD-68).
+const FOUNDRY_ID = /^[A-Za-z0-9]{16}$/;
+
+function embeddedName(value, actor) {
   if (!value) return '';
-  if (typeof value === 'string') return value;
-  return value.name || '';
+  if (typeof value !== 'string') return value.name || '';
+  const item = actor?.items?.get?.(value);
+  if (item?.name) return item.name;
+  return FOUNDRY_ID.test(value) ? '' : value;
 }
 
 function hitDieOf(item) {
@@ -316,8 +323,8 @@ export function readFoundryIdentity(actor) {
       hitDie: hitDieOf(item),
     })),
     subclassName: subclassItem?.name || '',
-    raceName: raceItem?.name || embeddedName(actor.system?.details?.race),
-    backgroundName: backgroundItem?.name || embeddedName(actor.system?.details?.background),
+    raceName: raceItem?.name || embeddedName(actor.system?.details?.race, actor),
+    backgroundName: backgroundItem?.name || embeddedName(actor.system?.details?.background, actor),
     size,
     hitDie: classItems.map(hitDieOf).find(Boolean) || '',
     hitDiceValue: hitDice.value,
