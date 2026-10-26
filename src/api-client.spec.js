@@ -64,6 +64,7 @@ describe('ArthinfoApiClient', () => {
     await makeClient().listDrafts();
 
     expect(fetch).toHaveBeenCalledWith('https://api.runarcana.org/api/drafts', {
+      signal: expect.any(AbortSignal),
       headers: {
         'X-Mesa-Key': 'ra_mesa_abc',
         Authorization: 'Bearer ra_mesa_abc',
@@ -77,6 +78,7 @@ describe('ArthinfoApiClient', () => {
 
     await client.getDraft('d1');
     expect(fetch).toHaveBeenLastCalledWith('https://api.runarcana.org/api/drafts/d1', {
+      signal: expect.any(AbortSignal),
       headers: {
         'X-Mesa-Key': 'ra_mesa_abc',
         Authorization: 'Bearer ra_mesa_abc',
@@ -85,6 +87,7 @@ describe('ArthinfoApiClient', () => {
 
     await client.saveDraft('d1', { title: 'A', assignedUserId: 'player-1', updatedAt: '2026-01-01T10:00:00.000Z' });
     expect(fetch).toHaveBeenLastCalledWith('https://api.runarcana.org/api/drafts/d1', {
+      signal: expect.any(AbortSignal),
       method: 'PUT',
       headers: {
         'X-Mesa-Key': 'ra_mesa_abc',
@@ -127,6 +130,7 @@ describe('ArthinfoApiClient', () => {
 
     expect(saved).toEqual({ id: 'd1', updatedAt: 't1' });
     expect(fetch).toHaveBeenLastCalledWith('https://api.runarcana.org/api/drafts/d1', {
+      signal: expect.any(AbortSignal),
       method: 'PATCH',
       headers: {
         'X-Mesa-Key': 'ra_mesa_abc',
@@ -248,6 +252,7 @@ describe('openStream — ticket em vez da chave na URL (FDD-46)', () => {
     const handle = await makeClient().openStream('d1', () => {}, () => {});
 
     expect(fetch).toHaveBeenCalledWith('https://api.runarcana.org/api/drafts/d1/stream-ticket', {
+      signal: expect.any(AbortSignal),
       method: 'POST',
       headers: {
         'X-Mesa-Key': 'ra_mesa_abc',
@@ -411,5 +416,44 @@ describe('listDrafts', () => {
     fetch.mockResolvedValue(jsonResponse({}, 500));
 
     await expect(makeClient().listDrafts()).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe('timeout das requisições (FDD-42)', () => {
+  function hangingFetch() {
+    return vi.fn((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('GET que nunca responde estoura em 20s, tenta de novo uma vez e então erra com TIMEOUT', async () => {
+    global.fetch = hangingFetch();
+    const pending = makeClient().getDraft('d1').catch((error) => error);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    const error = await pending;
+    expect(error.code).toBe('TIMEOUT');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('PUT não repete sozinho: um timeout e pronto', async () => {
+    global.fetch = hangingFetch();
+    const pending = makeClient().saveDraft('d1', { updatedAt: 'x' }).catch((error) => error);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    const error = await pending;
+    expect(error.code).toBe('TIMEOUT');
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

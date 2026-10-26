@@ -1,4 +1,5 @@
 import { MODULE_ID, readFlag } from './module-id.js';
+import { markFirstSyncPending } from './first-link.js';
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -86,6 +87,7 @@ export class DraftSelectorDialog {
             const draftId = select.value;
             const selectedOption = select.selectedOptions?.[0];
             if (!draftId || selectedOption?.disabled) return;
+            await markFirstSyncPending(this.actor);
             await this.actor.setFlag(MODULE_ID, 'draftId', draftId);
             ui.notifications.info(`Actor vinculado à ficha ${draftId}`);
             if (this.syncManager) {
