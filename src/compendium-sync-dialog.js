@@ -340,9 +340,18 @@ export class CompendiumSyncDialog {
             await game.settings.set(MODULE_ID, SELECTION_SETTING, packIds);
 
             try {
-              const result = await syncCompendiums(apiClient, packIds, (current, total) => {
-                ui.notifications.info(`Arthinfo Fichas: sincronizando lote ${current} de ${total}...`);
-              });
+              const result = await syncCompendiums(
+                apiClient,
+                packIds,
+                (current, total) => {
+                  ui.notifications.info(`Arthinfo Fichas: sincronizando lote ${current} de ${total}...`);
+                },
+                {
+                  onImages: (done, total) => {
+                    ui.notifications.info(`Arthinfo Fichas: enviando ícones ${done} de ${total}...`);
+                  },
+                },
+              );
               ui.notifications.info(
                 `Arthinfo Fichas: ${result.totalSynced} itens sincronizados de ${result.packSummaries.length} compêndio(s).`,
               );

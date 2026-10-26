@@ -1,3 +1,4 @@
+import { ImageStore } from './image-store.js';
 import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
 // foundry-module/src/compendium-sync.js
 // Lê compêndios de itens curados pelo mestre no Foundry e sincroniza pro
@@ -101,7 +102,7 @@ function chunk(array, size) {
  * pack.collection) pro backend, em lotes de BATCH_SIZE itens.
  * onProgress(loteAtual, totalLotes) é chamado a cada lote enviado.
  */
-export async function syncCompendiums(apiClient, packIds, onProgress) {
+export async function syncCompendiums(apiClient, packIds, onProgress, { onImages, imageStore = new ImageStore(apiClient) } = {}) {
   const allItems = [];
   const packSummaries = [];
 
@@ -115,6 +116,7 @@ export async function syncCompendiums(apiClient, packIds, onProgress) {
       foundryId: doc.id,
       name: doc.name,
       img: compendiumImg(doc.img),
+      rawImg: doc.img,
       itemType: doc.type,
       catalogKey: readFlag(doc, 'catalogKey') ?? null,
       system: doc.toObject().system,
@@ -124,7 +126,17 @@ export async function syncCompendiums(apiClient, packIds, onProgress) {
     packSummaries.push({ packId, label: pack.metadata.label, count: items.length });
   }
 
-  const batches = chunk(allItems, BATCH_SIZE);
+  // Ícones guardados na API por hash (FDD-71): o item leva img:<hash> em vez do
+  // caminho do Foundry. Sem suporte na API, o item segue com o caminho.
+  const uniquePaths = [...new Set(allItems.map((item) => item.rawImg).filter(Boolean))];
+  const IMAGE_CHUNK = 100;
+  for (let i = 0; i < uniquePaths.length; i += IMAGE_CHUNK) {
+    await imageStore.ensure(uniquePaths.slice(i, i + IMAGE_CHUNK));
+    onImages?.(Math.min(i + IMAGE_CHUNK, uniquePaths.length), uniquePaths.length);
+  }
+  const payload = allItems.map(({ rawImg, ...item }) => ({ ...item, img: imageStore.get(rawImg) ?? item.img }));
+
+  const batches = chunk(payload, BATCH_SIZE);
   for (let i = 0; i < batches.length; i++) {
     await apiClient.putCompendiumItemsBatch(batches[i]);
     onProgress?.(i + 1, batches.length);
