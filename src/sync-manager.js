@@ -13,7 +13,7 @@ import {
   proficiencyLevelToFoundrySkillValue,
 } from './data-mapper.js';
 import { UNSUPPORTED, buildPatch } from './draft-diff.js';
-import { findItemsByCatalogKeys, absoluteImg } from './compendium-sync.js';
+import { findItemsByCatalogKeys, compendiumImg } from './compendium-sync.js';
 import { postSiteRollToChat } from './chat-roll.js';
 import { consumeSiteHitDieRoll } from './consume-hit-die.js';
 import { getDraftIdsLinkedToOtherActors } from './draft-selector.js';
@@ -23,6 +23,7 @@ import { applyRest } from './apply-rest.js';
 import { applySpellSlot } from './apply-spell-slot.js';
 import { isCachedSpell } from './cached-spell.js';
 import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
+import { clearFirstSyncPending, shouldSeedDraftFromActor } from './first-link.js';
 import { actorHasNoMaxHp, repairClassHitPoints, startAtFullHitPoints } from './class-hit-points.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
@@ -84,7 +85,7 @@ function sanitizeActivities(itemData) {
 }
 
 function resolveActorPortrait(img) {
-  const url = absoluteImg(img);
+  const url = compendiumImg(img);
   if (!url) return '';
   if (String(url).includes('mystery-man') || String(url).includes('icons/svg/item-bag')) return '';
   return url;
@@ -133,7 +134,7 @@ function effectSourceName(effect, actor) {
 
 function serializeEffectEntry(effect, actor) {
   const entry = { name: effect.name };
-  const img = absoluteImg(effect.img || effect.icon);
+  const img = compendiumImg(effect.img || effect.icon);
   if (img) entry.img = img;
   if (effect.disabled) entry.disabled = true;
   if (effect.isSuppressed) entry.isSuppressed = true;
@@ -219,13 +220,17 @@ export class SyncManager {
         const initialDraft = await this.apiClient.getDraft(draftId);
         if (initialDraft) {
           this.lastKnownDraft.set(actor.id, initialDraft);
-          await this._applyRemoteDraft(actor, initialDraft);
+          // FDD-60: primeiro vínculo de um Ator que já é personagem: o Ator
+          // semeia a ficha (o _executeActorUpdate abaixo), não o contrário.
+          const seedFromActor = shouldSeedDraftFromActor(actor);
+          await this._applyRemoteDraft(actor, initialDraft, { seedFromActor });
           // Publica campos só-Foundry (retrato, death saves, condições)
           // e os itens do Ator (classe/raça/feats) que o draft remoto
           // ainda não tem — sem isso o cabeçalho da ficha fica com a
           // classe/origem da wiki e a aba Características perde a Fúria.
           await this._executeActorUpdate(actor, draftId);
           await this._executeItemUpdate(actor, draftId);
+          await clearFirstSyncPending(actor);
         }
       } catch (error) {
         this.notifyApiError('carregar', error, actor);
@@ -290,7 +295,7 @@ export class SyncManager {
     this.lastBiography.delete(actor.id);
   }
 
-  async _applyRemoteDraft(actor, data) {
+  async _applyRemoteDraft(actor, data, { seedFromActor = false } = {}) {
     const updateData = {};
     // Antes de criar/atualizar itens: se o Ator ainda não tem PV máximo, quem
     // der PV a ele (classe nova ou reparada) também o deixa com a vida cheia.
@@ -299,7 +304,7 @@ export class SyncManager {
     const siteHasNoHp = typeof remoteMaxHp === 'number' && remoteMaxHp <= 0;
 
     // 1. Processamento dinâmico de todos os atributos mapeados
-    for (const [foundryPath, firebasePath] of Object.entries(ATTR_MAP)) {
+    for (const [foundryPath, firebasePath] of (seedFromActor ? [] : Object.entries(ATTR_MAP))) {
       if (foundryPath.startsWith('system.abilities')) continue;
       if (ONE_WAY_FOUNDRY_TO_SITE.has(foundryPath)) continue;
       // Ficha sem PV máximo (0 herdado de Ator sem classe): o hp.value dela
@@ -314,7 +319,7 @@ export class SyncManager {
     }
 
     // 2. Processamento Específico: Atributos com Bônus Racial
-    ABILITY_KEYS.forEach(({ foundry: ab, firebase: fbKey }) => {
+    (seedFromActor ? [] : ABILITY_KEYS).forEach(({ foundry: ab, firebase: fbKey }) => {
       const currentVal = actor.system.abilities?.[ab]?.value || 0;
       const baseScore = foundry.utils.getProperty(data, `attributes.scores.${fbKey}`) || 10;
       const racialBonus = foundry.utils.getProperty(data, `attributes.originBonuses.${fbKey}`) || 0;
@@ -326,7 +331,7 @@ export class SyncManager {
     });
 
     // 2b. Proficiência de resistência (0/1 no Foundry, booleano no site)
-    ABILITY_KEYS.forEach(({ foundry: ab, firebase: fbKey }) => {
+    (seedFromActor ? [] : ABILITY_KEYS).forEach(({ foundry: ab, firebase: fbKey }) => {
       const remoteProficient = foundry.utils.getProperty(data, `proficiencies.savingThrows.${fbKey}`);
       if (remoteProficient === undefined) return;
       const remoteVal = remoteProficient ? 1 : 0;
@@ -337,7 +342,7 @@ export class SyncManager {
     });
 
     // 2c. Proficiência de perícia (0/0.5/1/2 no Foundry <-> false/'half'/true/'expertise' no site, FDD-10)
-    SKILL_KEY_MAP.forEach(({ foundry: sk, id }) => {
+    (seedFromActor ? [] : SKILL_KEY_MAP).forEach(({ foundry: sk, id }) => {
       const remoteLevel = foundry.utils.getProperty(data, `proficiencies.skills.${id}`);
       if (remoteLevel === undefined) return;
       const remoteVal = proficiencyLevelToFoundrySkillValue(remoteLevel);
@@ -569,7 +574,7 @@ export class SyncManager {
       try {
         const data = item.toObject();
         data._id = readFlag(item, 'sourceId') || data._id;
-        data.img = absoluteImg(data.img);
+        data.img = compendiumImg(data.img);
         const cleaned = cleanItemData(data);
         // advancement de classe/raça é enorme e não é lido pela ficha —
         // sem isso o PUT às vezes falha e o item de classe some do draft.
@@ -583,7 +588,7 @@ export class SyncManager {
           _id: readFlag(item, 'sourceId') || item.id,
           name: item.name,
           type: item.type,
-          img: absoluteImg(item.img),
+          img: compendiumImg(item.img),
           system: item.type === 'class' ? { levels: item.system?.levels } : {},
         });
       }

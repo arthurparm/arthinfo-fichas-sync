@@ -73,8 +73,8 @@ export function absoluteImg(img) {
 // No compêndio do backend a img é caminho da raiz do Foundry ("/icons/..."), não
 // URL absoluta: gravar "http://localhost:30000/..." na coluna `img` faz todo
 // jogador disparar GET no localhost dele (FDD-18). O site monta a imagem a
-// partir do caminho. O retrato do Ator continua usando absoluteImg — lá a URL
-// completa é a foto de verdade.
+// partir do caminho. O mesmo vale pro draft (retrato, item, condição, efeito):
+// o sync grava caminho da raiz, nunca http://localhost:30000/... (FDD-71).
 export function compendiumImg(img) {
   if (!img) return img;
   const raw = String(img).trim();

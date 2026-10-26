@@ -10,6 +10,15 @@ function apiError(message, status) {
   return error;
 }
 
+// FDD-42: fetch cru fica pendurado pra sempre se a API aceita a conexão e não
+// responde — o sync do Ator travava até recarregar o Foundry. 20s é bem mais
+// que um round-trip normal e bem menos que "pra sempre". Só leitura (GET) tem
+// retry, e limitado; escrita não repete sozinha (a fila de saves e o If-Match
+// decidem o que fazer com o erro).
+const REQUEST_TIMEOUT_MS = 20_000;
+const BATCH_TIMEOUT_MS = 60_000;
+const READ_RETRIES = 1;
+
 export class ArthinfoApiClient {
   constructor({ mesaKey, baseUrl } = {}) {
     this.mesaKey = typeof mesaKey === 'string' ? mesaKey.trim() : '';
@@ -17,6 +26,27 @@ export class ArthinfoApiClient {
     // Identifica esta sessão do módulo pra ignorar o próprio eco quando o
     // stream SSE devolver uma mudança que este mesmo cliente acabou de enviar.
     this.clientId = foundry.utils.randomID();
+  }
+
+  async _fetch(url, options = {}, { timeoutMs = REQUEST_TIMEOUT_MS, retries = 0 } = {}) {
+    for (let attempt = 0; ; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...options, signal: controller.signal });
+      } catch (error) {
+        const timedOut = controller.signal.aborted;
+        if (attempt < retries) continue;
+        if (timedOut) {
+          const timeout = apiError(`A API não respondeu em ${Math.round(timeoutMs / 1000)}s.`, 0);
+          timeout.code = 'TIMEOUT';
+          throw timeout;
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
   }
 
   _headers(extra = {}) {
@@ -31,9 +61,9 @@ export class ArthinfoApiClient {
   }
 
   async listDrafts() {
-    const res = await fetch(`${this.baseUrl}/api/drafts`, {
+    const res = await this._fetch(`${this.baseUrl}/api/drafts`, {
       headers: this._headers(),
-    });
+    }, { retries: READ_RETRIES });
     if (!res.ok) {
       throw apiError(`Falha ao listar fichas (HTTP ${res.status}).`, res.status);
     }
@@ -41,9 +71,9 @@ export class ArthinfoApiClient {
   }
 
   async getDraft(draftId) {
-    const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
+    const res = await this._fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
       headers: this._headers(),
-    });
+    }, { retries: READ_RETRIES });
     if (res.status === 404) return null;
     if (!res.ok) {
       throw new Error(`Falha ao buscar a ficha (HTTP ${res.status}).`);
@@ -60,11 +90,11 @@ export class ArthinfoApiClient {
     if (!this.mesaKey) {
       throw new Error('Chave da mesa não configurada.');
     }
-    const res = await fetch(`${this.baseUrl}/api/compendium/items`, {
+    const res = await this._fetch(`${this.baseUrl}/api/compendium/items`, {
       method: 'PUT',
       headers: this._headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ items }),
-    });
+    }, { timeoutMs: BATCH_TIMEOUT_MS });
     if (!res.ok) {
       throw new Error(`Falha ao sincronizar itens de compêndio (HTTP ${res.status}).`);
     }
@@ -73,9 +103,9 @@ export class ArthinfoApiClient {
 
   /** O que a mesa disponibilizou: { total, packs: [{ packId, count }] } (FDD-74). */
   async getMyCompendium() {
-    const res = await fetch(`${this.baseUrl}/api/compendium/mine`, {
+    const res = await this._fetch(`${this.baseUrl}/api/compendium/mine`, {
       headers: this._headers(),
-    });
+    }, { retries: READ_RETRIES });
     if (!res.ok) {
       throw apiError(`Falha ao consultar o compêndio da mesa (HTTP ${res.status}).`, res.status);
     }
@@ -88,10 +118,10 @@ export class ArthinfoApiClient {
    */
   async clearMyCompendium(packId) {
     const query = packId ? `?packId=${encodeURIComponent(packId)}` : '';
-    const res = await fetch(`${this.baseUrl}/api/compendium/items${query}`, {
+    const res = await this._fetch(`${this.baseUrl}/api/compendium/items${query}`, {
       method: 'DELETE',
       headers: this._headers(),
-    });
+    }, { timeoutMs: BATCH_TIMEOUT_MS });
     if (!res.ok) {
       throw apiError(`Falha ao limpar o compêndio da mesa (HTTP ${res.status}).`, res.status);
     }
@@ -101,7 +131,7 @@ export class ArthinfoApiClient {
   async saveDraft(draftId, payload) {
     const { assignedUserId: _ignored, ...body } = payload || {};
     const ifMatch = typeof body.updatedAt === 'string' ? body.updatedAt.trim() : '';
-    const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
+    const res = await this._fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
       method: 'PUT',
       headers: this._headers({
         'Content-Type': 'application/json',
@@ -134,7 +164,7 @@ export class ArthinfoApiClient {
    * que separa "ficha apagada" de "API antiga sem PATCH").
    */
   async patchDraft(draftId, patch, ifMatch) {
-    const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
+    const res = await this._fetch(`${this.baseUrl}/api/drafts/${draftId}`, {
       method: 'PATCH',
       headers: this._headers({
         'Content-Type': 'application/json',
@@ -168,7 +198,7 @@ export class ArthinfoApiClient {
    * log do host/proxy.
    */
   async requestStreamTicket(draftId) {
-    const res = await fetch(`${this.baseUrl}/api/drafts/${draftId}/stream-ticket`, {
+    const res = await this._fetch(`${this.baseUrl}/api/drafts/${draftId}/stream-ticket`, {
       method: 'POST',
       headers: this._headers(),
     });
