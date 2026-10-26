@@ -1,8 +1,0 @@
-2026/04/07-16:29:10.066 34dc Recovering log #12
-2026/04/07-16:29:10.070 34dc Delete type=0 #12
-2026/04/07-16:29:10.070 34dc Delete type=3 #10
-2026/04/07-16:32:30.606 77b0 Level-0 table #17: started
-2026/04/07-16:32:30.606 77b0 Level-0 table #17: 0 bytes OK
-2026/04/07-16:32:30.608 77b0 Delete type=0 #15
-2026/04/07-16:32:30.609 77b0 Manual compaction at level-0 from '!folders!7zo2bljGLQY3uwXI' @ 72057594037927935 : 1 .. '!items.effects!phbftAlert000000.uvZy4Zzi0oPd54qs' @ 0 : 0; will stop at (end)
-2026/04/07-16:32:30.609 77b0 Manual compaction at level-1 from '!folders!7zo2bljGLQY3uwXI' @ 72057594037927935 : 1 .. '!items.effects!phbftAlert000000.uvZy4Zzi0oPd54qs' @ 0 : 0; will stop at (end)
