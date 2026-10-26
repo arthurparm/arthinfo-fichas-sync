@@ -62,6 +62,12 @@ export const ATTR_MAP = {
   'system.spells.pact.value': 'spellSlots.pact.current',
   'system.spells.pact.max': 'spellSlots.pact.max',
 
+  // --- Conjuração derivada (CD / bônus de ataque de magia) ---
+  // Números que o dnd5e já calcula em prepareSpellcastingAbility; o site deriva
+  // 8+PB+mod só como fallback pra ficha sem Ator (FDD-54).
+  'system.attributes.spell.dc': 'spellcasting.saveDc',
+  'system.attributes.spell.attack': 'spellcasting.attackBonus',
+
   // --- Recursos Personalizados (Primário, Secundário, Terciário) ---
   'system.resources.primary.value': 'resources.primary.current',
   'system.resources.primary.max': 'resources.primary.max',
@@ -123,6 +129,9 @@ export const ONE_WAY_FOUNDRY_TO_SITE = new Set([
   'system.resources.primary.max',
   'system.resources.secondary.max',
   'system.resources.tertiary.max',
+  // FDD-54: CD e ataque de magia já calculados pelo dnd5e (item.computed cobre os itens).
+  'system.attributes.spell.dc',
+  'system.attributes.spell.attack',
 ]);
 
 // Paths do ATTR_MAP cujo valor do site nunca pode ser vazio ao escrever no
@@ -465,4 +474,70 @@ export function proficiencyLevelToFoundrySkillValue(level) {
   if (level === 'expertise') return 2;
   if (level === 'half') return 0.5;
   return level ? 1 : 0;
+}
+
+function asActivityList(activities) {
+  if (!activities) return [];
+  if (Array.isArray(activities)) return activities.filter(Boolean);
+  if (typeof activities.values === 'function') {
+    try {
+      return [...activities.values()].filter(Boolean);
+    } catch {
+      // Collection/Map falso — cai no objeto plano abaixo.
+    }
+  }
+  if (typeof activities === 'object' && typeof activities[Symbol.iterator] === 'function') {
+    try {
+      return [...activities].filter(Boolean);
+    } catch {
+      // fall through
+    }
+  }
+  if (typeof activities === 'object') return Object.values(activities).filter(Boolean);
+  return [];
+}
+
+// A ficha do dnd5e usa parseInt(item.labels.modifier) como to-hit. Depois
+// de prepareFinalData isso é um inteiro já simplificado ("+7"). Recusar
+// fórmula residual ("2+@mod") pra não mandar um parseInt truncado.
+function parsePreparedModifier(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replaceAll(' ', '');
+  if (!/^[+-]?\d+$/.test(trimmed)) return null;
+  return Number.parseInt(trimmed, 10);
+}
+
+/**
+ * Números de combate que o dnd5e já resolveu no item vivo — Foundry -> site
+ * apenas (FDD-54). `item.toObject()` não inclui `labels` (derivado em
+ * prepareData): AttackActivity.prepareFinalData chama getAttackData() e
+ * grava labels.modifier com mod + prof + mágico + system.bonuses.*.attack
+ * (estilo de luta) + efeito ativo. A ficha do próprio Foundry lê
+ * parseInt(item.labels.modifier). CD de salvaguarda: save.dc.value depois
+ * do mesmo prepare.
+ *
+ * Devolve undefined quando o item não tem ataque/save preparado, pra o
+ * site cair na fórmula-fallback.
+ */
+export function readItemComputedCombat(item) {
+  if (!item) return undefined;
+  const computed = {};
+
+  const fromItemLabels = parsePreparedModifier(item.labels?.modifier);
+  if (fromItemLabels !== null) {
+    computed.attackBonus = fromItemLabels;
+  } else {
+    const attack = asActivityList(item.system?.activities).find((activity) => activity?.type === 'attack');
+    const fromActivity = parsePreparedModifier(attack?.labels?.modifier);
+    if (fromActivity !== null) computed.attackBonus = fromActivity;
+  }
+
+  const save = asActivityList(item.system?.activities).find((activity) => activity?.type === 'save');
+  const saveDc = save?.save?.dc?.value;
+  if (typeof saveDc === 'number' && Number.isFinite(saveDc) && saveDc > 0) {
+    computed.saveDc = saveDc;
+  }
+
+  return Object.keys(computed).length ? computed : undefined;
 }

@@ -9,6 +9,7 @@ import {
   readFoundryBiography,
   mergeFoundryBiography,
   readFoundryIdentity,
+  readItemComputedCombat,
   foundrySkillValueToProficiencyLevel,
   proficiencyLevelToFoundrySkillValue,
 } from './data-mapper.js';
@@ -44,6 +45,9 @@ function cleanItemData(itemData) {
   delete cleaned.sort;
   delete cleaned.ownership;
   delete cleaned.folder;
+  // computed é Foundry -> site só (FDD-54): toObject() local não tem labels e o
+  // Foundry rejeitaria o campo extra no schema do Item.
+  delete cleaned.computed;
   if (cleaned.flags) {
     delete cleaned.flags.core;
     delete cleaned.flags.exportSource;
@@ -374,6 +378,7 @@ export class SyncManager {
 
         // Sanitiza e formata o item (Especialmente as Activities de magias como Marca da Presa)
         const sanitizedRemoteItem = sanitizeActivities(foundry.utils.deepClone(rItem));
+        delete sanitizedRemoteItem.computed;
 
         if (!lItem) {
           // Criação de novo item vindo do backend
@@ -565,6 +570,26 @@ export class SyncManager {
     this.lastBiography.set(actor.id, biography);
     base.identity = mergeFoundryBiography(base.identity, biography.identity, seen?.identity);
     base.description = mergeFoundryBiography(base.description, biography.description, seen?.description);
+    // Ataque/CD de item dependem de atributo, efeito e estilo de luta: mudança no
+    // Ator (não no item) refresca computed sem re-serializar o array inteiro.
+    this._refreshItemComputedOntoDraft(actor, base);
+  }
+
+  // Copia labels já resolvidos do item vivo pros itens que já estão no draft (FDD-54).
+  _refreshItemComputedOntoDraft(actor, base) {
+    if (!Array.isArray(base.items) || !actor.items) return;
+    const liveById = new Map();
+    for (const item of actor.items) {
+      const id = readFlag(item, 'sourceId') || item.id;
+      if (id) liveById.set(id, item);
+    }
+    for (const draftItem of base.items) {
+      const live = liveById.get(draftItem._id);
+      if (!live) continue;
+      const computed = readItemComputedCombat(live);
+      if (computed) draftItem.computed = computed;
+      else delete draftItem.computed;
+    }
   }
 
   _overlayItemsOntoDraft(actor, base) {
@@ -581,16 +606,21 @@ export class SyncManager {
         if (['class', 'subclass', 'race', 'background'].includes(cleaned.type) && cleaned.system) {
           delete cleaned.system.advancement;
         }
+        const computed = readItemComputedCombat(item);
+        if (computed) cleaned.computed = computed;
         itemsData.push(cleaned);
       } catch (error) {
         console.warn(`Arthinfo Fichas | Não foi possível serializar ${item.name} (${item.type}):`, error);
-        itemsData.push({
+        const stub = {
           _id: readFlag(item, 'sourceId') || item.id,
           name: item.name,
           type: item.type,
           img: compendiumImg(item.img),
           system: item.type === 'class' ? { levels: item.system?.levels } : {},
-        });
+        };
+        const stubComputed = readItemComputedCombat(item);
+        if (stubComputed) stub.computed = stubComputed;
+        itemsData.push(stub);
       }
     }
 

@@ -810,3 +810,51 @@ describe('SyncManager._overlayActorOntoDraft — biografia não atropela o site 
     expect(manager.lastBiography.has('actor-bio')).toBe(false);
   });
 });
+
+describe('SyncManager — ataque e CD calculados pelo Foundry vão pro site (FDD-54)', () => {
+  function weapon(id, labels) {
+    return {
+      id,
+      type: 'weapon',
+      labels,
+      getFlag: () => undefined,
+      toObject: () => ({ _id: id, name: 'Espada Longa', type: 'weapon', img: 'icons/x.webp', system: {}, flags: {} }),
+    };
+  }
+
+  it('o overlay de itens manda item.computed com o bônus já resolvido', () => {
+    const actor = makeActor();
+    actor.items = [weapon('w1', { modifier: '+7' })];
+    const base = { items: [] };
+    new SyncManager({})._overlayItemsOntoDraft(actor, base);
+    expect(base.items[0].computed).toEqual({ attackBonus: 7 });
+  });
+
+  it('mudança só no Ator refresca computed dos itens que já estão no draft', () => {
+    const actor = makeActor();
+    actor.name = 'Lyra';
+    actor.img = '';
+    actor.items = [weapon('w1', { modifier: '+9' })];
+    const base = { items: [{ _id: 'w1', name: 'Espada Longa', computed: { attackBonus: 7 } }] };
+    new SyncManager({})._refreshItemComputedOntoDraft(actor, base);
+    expect(base.items[0].computed).toEqual({ attackBonus: 9 });
+  });
+
+  it('computed vindo do site nunca vai pro Ator e a CD de magia não é reescrita', async () => {
+    const actor = makeActor();
+    actor.system.attributes.spell = { dc: 15, attack: 7 };
+    actor.items = { contents: [] };
+    actor.createEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      spellcasting: { saveDc: 8, attackBonus: 0 },
+      items: [{ _id: 'w1', name: 'Espada', type: 'weapon', system: {}, computed: { attackBonus: 99 } }],
+    });
+    const [, created] = actor.createEmbeddedDocuments.mock.calls[0];
+    expect(created[0]).not.toHaveProperty('computed');
+    const updates = actor.update.mock.calls.flatMap(([data]) => Object.keys(data));
+    expect(updates).not.toContain('system.attributes.spell.dc');
+    expect(updates).not.toContain('system.attributes.spell.attack');
+  });
+});
