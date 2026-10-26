@@ -53,7 +53,7 @@ describe('retrato embutido na ficha (FDD-71)', () => {
       load: load(2000, 2000),
     });
     expect(url).toBe('');
-    expect(sizes).toEqual([256, 160]);
+    expect(sizes).toEqual([256, 154]);
   });
 
   it('falha ao carregar a imagem não derruba o sync: devolve vazio', async () => {

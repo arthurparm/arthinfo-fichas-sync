@@ -26,6 +26,7 @@ import { isCachedSpell } from './cached-spell.js';
 import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
 import { clearFirstSyncPending, shouldSeedDraftFromActor } from './first-link.js';
 import { encodePortrait } from './portrait.js';
+import { ImageStore, isImageRef } from './image-store.js';
 import { actorHasNoMaxHp, repairClassHitPoints, startAtFullHitPoints } from './class-hit-points.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
@@ -130,9 +131,9 @@ function effectSourceName(effect, actor) {
   return '';
 }
 
-function serializeEffectEntry(effect, actor) {
+function serializeEffectEntry(effect, actor, imgOf = compendiumImg) {
   const entry = { name: effect.name };
-  const img = compendiumImg(effect.img || effect.icon);
+  const img = imgOf(effect.img || effect.icon);
   if (img) entry.img = img;
   if (effect.disabled) entry.disabled = true;
   if (effect.isSuppressed) entry.isSuppressed = true;
@@ -149,10 +150,10 @@ function serializeEffectEntry(effect, actor) {
 // Condição de status de verdade (enfeitiçado, envenenado, etc.) tem
 // effect.statuses preenchido. Efeitos passivos de item (Defesa Desarmada)
 // também vêm com disabled: false, mas statuses vazio — não entram aqui.
-function serializeActorConditions(actor) {
+function serializeActorConditions(actor, imgOf) {
   return collectApplicableEffects(actor)
     .filter((effect) => !effect.disabled && !effect.isSuppressed && effect.name && !isEnchantmentEffect(effect))
-    .map((effect) => serializeEffectEntry(effect, actor))
+    .map((effect) => serializeEffectEntry(effect, actor, imgOf))
     .filter((entry) => {
       const statuses = entry.statuses ?? [];
       if (statuses.length === 0) return false;
@@ -166,10 +167,10 @@ function serializeActorConditions(actor) {
 }
 
 // Aba Efeitos do Foundry: passivos, inativos, temporários e suprimidos.
-function serializeActorEffects(actor) {
+function serializeActorEffects(actor, imgOf) {
   return collectApplicableEffects(actor)
     .filter((effect) => effect?.name && !isEnchantmentEffect(effect))
-    .map((effect) => serializeEffectEntry(effect, actor));
+    .map((effect) => serializeEffectEntry(effect, actor, imgOf));
 }
 
 export class SyncManager {
@@ -191,6 +192,9 @@ export class SyncManager {
     // Retrato embutido por ator (FDD-71): { img, dataUrl }. Gerado fora do overlay
     // (que é síncrono) e reaproveitado enquanto o img do Ator não muda.
     this.portraits = new Map();
+    // Imagens do Foundry guardadas na API por hash; o draft leva só a referência.
+    this.images = new ImageStore(apiClient);
+    this._imgOf = (path) => this.images.get(path) ?? compendiumImg(path);
 
     this.debouncedActorUpdate = debounce(this._executeActorUpdate.bind(this), 1000);
     this.debouncedItemUpdate = debounce(this._executeItemUpdate.bind(this), 1000);
@@ -377,6 +381,13 @@ export class SyncManager {
         // Sanitiza e formata o item (Especialmente as Activities de magias como Marca da Presa)
         const sanitizedRemoteItem = sanitizeActivities(foundry.utils.deepClone(rItem));
         delete sanitizedRemoteItem.computed;
+        // img:<hash> é referência do site: o Ator guarda sempre o caminho do Foundry.
+        if (isImageRef(sanitizedRemoteItem.img)) {
+          const known = this.images.pathOf(sanitizedRemoteItem.img);
+          if (lItem) sanitizedRemoteItem.img = lItem.img;
+          else if (known) sanitizedRemoteItem.img = known;
+          else delete sanitizedRemoteItem.img;
+        }
 
         if (!lItem) {
           // Criação de novo item vindo do backend
@@ -555,17 +566,23 @@ export class SyncManager {
 
     // Retrato: só Foundry -> site. A ficha não deve alterar o img do Ator.
     // Enquanto o retrato não foi gerado, mantém o que a ficha já tem.
+    // Preferência: referência por hash (API guarda a imagem); reserva: cópia
+    // embutida na ficha.
     const portrait = this.portraits.get(actor.id);
-    if (portrait && portrait.img === actor.img) {
+    let portraitValue;
+    const portraitRef = this.images.get(actor.img);
+    if (portraitRef) portraitValue = portraitRef;
+    else if (portrait && portrait.img === actor.img) portraitValue = portrait.dataUrl;
+    if (portraitValue !== undefined) {
       // Ator sem retrato utilizável só limpa o que a ficha tinha (caminho/URL
       // antiga); não inventa um campo vazio onde não havia nada.
       const current = foundry.utils.getProperty(base, 'concept.portraitUrl');
-      if (portrait.dataUrl || current) {
-        foundry.utils.setProperty(base, 'concept.portraitUrl', portrait.dataUrl);
+      if (portraitValue || current) {
+        foundry.utils.setProperty(base, 'concept.portraitUrl', portraitValue);
       }
     }
-    base.conditions = serializeActorConditions(actor);
-    base.effects = serializeActorEffects(actor);
+    base.conditions = serializeActorConditions(actor, this._imgOf);
+    base.effects = serializeActorEffects(actor, this._imgOf);
     // Sentidos, resistências, proficiências de armadura/arma e idiomas —
     // listas/objetos, só Foundry -> site (evita eco de Set vs array).
     base.traits = readActorTraits(actor);
@@ -606,7 +623,7 @@ export class SyncManager {
       try {
         const data = item.toObject();
         data._id = readFlag(item, 'sourceId') || data._id;
-        data.img = compendiumImg(data.img);
+        data.img = this._imgOf(data.img);
         const cleaned = cleanItemData(data);
         // advancement de classe/raça é enorme e não é lido pela ficha —
         // sem isso o PUT às vezes falha e o item de classe some do draft.
@@ -622,7 +639,7 @@ export class SyncManager {
           _id: readFlag(item, 'sourceId') || item.id,
           name: item.name,
           type: item.type,
-          img: compendiumImg(item.img),
+          img: this._imgOf(item.img),
           system: item.type === 'class' ? { levels: item.system?.levels } : {},
         };
         const stubComputed = readItemComputedCombat(item);
@@ -633,8 +650,8 @@ export class SyncManager {
 
     base.items = itemsData;
     base.foundryIdentity = readFoundryIdentity(actor);
-    base.conditions = serializeActorConditions(actor);
-    base.effects = serializeActorEffects(actor);
+    base.conditions = serializeActorConditions(actor, this._imgOf);
+    base.effects = serializeActorEffects(actor, this._imgOf);
   }
 
   _saveDraftFromActor(actor, draftId, overlay, errorAction, prepare) {
@@ -725,15 +742,30 @@ export class SyncManager {
     }
     await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
       this._overlayActorOntoDraft(currentActor, base);
-    }, 'salvar', () => this._ensurePortrait(actor));
+    }, 'salvar', () => this._ensureImages(actor));
   }
 
-  // Gera o retrato reduzido só quando o img do Ator mudou (FDD-71).
-  async _ensurePortrait(actor) {
-    const img = actor.img;
-    if (this.portraits.get(actor.id)?.img === img) return;
-    const dataUrl = await encodePortrait(img);
-    this.portraits.set(actor.id, { img, dataUrl });
+  // Garante as imagens do Ator na API (retrato, itens, condições, efeitos) e,
+  // quando o retrato não pôde ir por hash (API sem /api/images), gera a cópia
+  // embutida de reserva (FDD-71).
+  async _ensureImages(actor) {
+    const paths = new Set();
+    if (actor.img) paths.add(actor.img);
+    for (const item of actor.items ?? []) {
+      if (item?.img) paths.add(item.img);
+    }
+    for (const effect of collectApplicableEffects(actor)) {
+      const path = effect?.img || effect?.icon;
+      if (path) paths.add(path);
+    }
+    await this.images.ensure(paths, new Set([actor.img]));
+
+    if (this.images.get(actor.img)) {
+      this.portraits.delete(actor.id);
+      return;
+    }
+    if (this.portraits.get(actor.id)?.img === actor.img) return;
+    this.portraits.set(actor.id, { img: actor.img, dataUrl: await encodePortrait(actor.img) });
   }
 
   async handleItemUpdate(actor) {
@@ -755,6 +787,6 @@ export class SyncManager {
 
     await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
       this._overlayItemsOntoDraft(currentActor, base);
-    }, 'salvar os itens de');
+    }, 'salvar os itens de', () => this._ensureImages(actor));
   }
 }

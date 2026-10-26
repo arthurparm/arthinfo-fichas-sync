@@ -112,6 +112,36 @@ export class ArthinfoApiClient {
     return res.json();
   }
 
+  /** Quais hashes de imagem a API ainda não tem (FDD-71). */
+  async missingImages(hashes) {
+    const res = await this._fetch(`${this.baseUrl}/api/images/missing`, {
+      method: 'POST',
+      headers: this._headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ hashes }),
+    });
+    if (!res.ok) {
+      throw apiError(`Falha ao consultar imagens (HTTP ${res.status}).`, res.status);
+    }
+    return (await res.json()).missing ?? [];
+  }
+
+  /** Envia imagens reduzidas ({ hash, mime, data(base64) }); a API confere o hash (FDD-71). */
+  async uploadImages(images) {
+    const res = await this._fetch(
+      `${this.baseUrl}/api/images`,
+      {
+        method: 'POST',
+        headers: this._headers({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ images }),
+      },
+      { timeoutMs: BATCH_TIMEOUT_MS },
+    );
+    if (!res.ok) {
+      throw apiError(`Falha ao enviar imagens (HTTP ${res.status}).`, res.status);
+    }
+    return res.json();
+  }
+
   /**
    * Limpa o compêndio da mesa (FDD-74); `packId` limita a um pack. Irreversível:
    * só volta com nova sincronização. Nunca toca no catálogo público.
