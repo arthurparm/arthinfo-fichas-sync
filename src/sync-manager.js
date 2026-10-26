@@ -25,6 +25,7 @@ import { applySpellSlot } from './apply-spell-slot.js';
 import { isCachedSpell } from './cached-spell.js';
 import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
 import { clearFirstSyncPending, shouldSeedDraftFromActor } from './first-link.js';
+import { encodePortrait } from './portrait.js';
 import { actorHasNoMaxHp, repairClassHitPoints, startAtFullHitPoints } from './class-hit-points.js';
 
 // Utilitário de debounce para agrupar atualizações rápidas
@@ -86,13 +87,6 @@ function sanitizeActivities(itemData) {
   }
 
   return itemData;
-}
-
-function resolveActorPortrait(img) {
-  const url = compendiumImg(img);
-  if (!url) return '';
-  if (String(url).includes('mystery-man') || String(url).includes('icons/svg/item-bag')) return '';
-  return url;
 }
 
 function isDraftClaimedByAnotherActor(actor, draftId) {
@@ -194,6 +188,9 @@ export class SyncManager {
     // clonaria a mesma base e o mais lento sobrescreveria o mais rápido.
     // Serializar garante que o segundo parta do draft que o primeiro salvou.
     this.saveQueues = new Map();
+    // Retrato embutido por ator (FDD-71): { img, dataUrl }. Gerado fora do overlay
+    // (que é síncrono) e reaproveitado enquanto o img do Ator não muda.
+    this.portraits = new Map();
 
     this.debouncedActorUpdate = debounce(this._executeActorUpdate.bind(this), 1000);
     this.debouncedItemUpdate = debounce(this._executeItemUpdate.bind(this), 1000);
@@ -297,6 +294,7 @@ export class SyncManager {
     }
     this.lastKnownDraft.delete(actor.id);
     this.lastBiography.delete(actor.id);
+    this.portraits.delete(actor.id);
   }
 
   async _applyRemoteDraft(actor, data, { seedFromActor = false } = {}) {
@@ -556,7 +554,16 @@ export class SyncManager {
     }
 
     // Retrato: só Foundry -> site. A ficha não deve alterar o img do Ator.
-    foundry.utils.setProperty(base, 'concept.portraitUrl', resolveActorPortrait(actor.img));
+    // Enquanto o retrato não foi gerado, mantém o que a ficha já tem.
+    const portrait = this.portraits.get(actor.id);
+    if (portrait && portrait.img === actor.img) {
+      // Ator sem retrato utilizável só limpa o que a ficha tinha (caminho/URL
+      // antiga); não inventa um campo vazio onde não havia nada.
+      const current = foundry.utils.getProperty(base, 'concept.portraitUrl');
+      if (portrait.dataUrl || current) {
+        foundry.utils.setProperty(base, 'concept.portraitUrl', portrait.dataUrl);
+      }
+    }
     base.conditions = serializeActorConditions(actor);
     base.effects = serializeActorEffects(actor);
     // Sentidos, resistências, proficiências de armadura/arma e idiomas —
@@ -630,9 +637,13 @@ export class SyncManager {
     base.effects = serializeActorEffects(actor);
   }
 
-  _saveDraftFromActor(actor, draftId, overlay, errorAction) {
+  _saveDraftFromActor(actor, draftId, overlay, errorAction, prepare) {
     const previous = this.saveQueues.get(actor.id) ?? Promise.resolve();
-    const run = previous.then(() => this._saveDraftFromActorNow(actor, draftId, overlay, errorAction));
+    const run = previous.then(async () => {
+      // Preparo assíncrono (ex.: retrato) roda já dentro da fila, pra não mudar a ordem dos saves.
+      await prepare?.();
+      return this._saveDraftFromActorNow(actor, draftId, overlay, errorAction);
+    });
     // A fila segue mesmo se este save falhar; quem chamou ainda recebe o erro.
     const tail = run.catch(() => {});
     this.saveQueues.set(actor.id, tail);
@@ -714,7 +725,15 @@ export class SyncManager {
     }
     await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
       this._overlayActorOntoDraft(currentActor, base);
-    }, 'salvar');
+    }, 'salvar', () => this._ensurePortrait(actor));
+  }
+
+  // Gera o retrato reduzido só quando o img do Ator mudou (FDD-71).
+  async _ensurePortrait(actor) {
+    const img = actor.img;
+    if (this.portraits.get(actor.id)?.img === img) return;
+    const dataUrl = await encodePortrait(img);
+    this.portraits.set(actor.id, { img, dataUrl });
   }
 
   async handleItemUpdate(actor) {
