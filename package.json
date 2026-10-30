@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
+    "lint": "eslint . --max-warnings 6",
     "prepare": "node scripts/sync-version.mjs --install-hooks",
     "version:check": "node scripts/sync-version.mjs --check",
     "test:version": "node --test scripts/sync-version.node-test.mjs"
@@ -16,6 +17,9 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^17.13.0",
     "vite": "^8.0.7",
     "vitest": "^5.0.0"
   }

@@ -13,6 +13,9 @@ migração de flags/configurações de mundos que já usavam o módulo antigo. E
 - `npm run dev` — Vite em modo watch.
 - `npm run build` — gera `dist/module.js` (versão publicada no
   `module.json`/Foundry).
+- `npm run lint` — ESLint. Há 6 avisos antigos em código de sync (travados
+  com `--max-warnings 6`; baixe o número ao corrigir). CI em
+  `.github/workflows/ci.yml` roda lint, testes e build.
 - `npm run test` — Vitest (`*.spec.js` ao lado de cada arquivo fonte).
   Isso não substitui verificação in-world no Foundry.
 
