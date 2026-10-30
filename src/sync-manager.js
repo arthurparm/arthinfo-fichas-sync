@@ -73,7 +73,7 @@ function sanitizeActivities(itemData) {
   // Se o backend enviar como array por engano, convertemos para objeto (dicionário)
   if (Array.isArray(activities)) {
     const dict = {};
-    activities.forEach((act, index) => {
+    activities.forEach((act) => {
       // Gera um ID ou usa o existente
       const actId = act._id || foundry.utils.randomID();
       act._id = actId;
@@ -508,7 +508,7 @@ export class SyncManager {
     }
   }
 
-  async handleActorUpdate(actor, changes) {
+  async handleActorUpdate(actor, _changes) {
     if (this.activeSyncs.has(actor.id)) return;
 
     const draftId = readFlag(actor, 'draftId');

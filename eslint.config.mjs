@@ -24,12 +24,10 @@ const foundryGlobals = Object.fromEntries(
   ].map((name) => [name, 'readonly']),
 );
 
-// Dívida existente (2026-10-30): código de sincronização que só se valida no
-// Foundry, então não foi alterado ao introduzir o lint. Fica como aviso e o
-// `npm run lint` trava o total com --max-warnings (ver package.json).
-const DEBT = {
-  'no-useless-assignment': 'warn',
-  'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+// Parâmetro/variável com prefixo _ é intencionalmente não usado (assinatura de hook).
+const RULES = {
+  'no-useless-assignment': 'error',
+  'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
 };
 
 export default [
@@ -41,7 +39,7 @@ export default [
       sourceType: 'module',
       globals: { ...globals.browser, ...foundryGlobals },
     },
-    rules: DEBT,
+    rules: RULES,
   },
   {
     // Testes e scripts rodam no Node (global, Buffer...), não dentro do VTT.
