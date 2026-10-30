@@ -253,7 +253,7 @@ export class CompendiumSyncDialog {
       });
     }
 
-    let lastSelection = [];
+    let lastSelection;
     try {
       lastSelection = game.settings.get(MODULE_ID, SELECTION_SETTING) ?? [];
     } catch {

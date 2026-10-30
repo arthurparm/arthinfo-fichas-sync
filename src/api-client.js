@@ -171,7 +171,7 @@ export class ArthinfoApiClient {
       body: JSON.stringify(body),
     });
     if (res.status === 409) {
-      let parsed = null;
+      let parsed;
       try {
         parsed = await res.json();
       } catch {
@@ -205,7 +205,7 @@ export class ArthinfoApiClient {
     });
     if (res.ok) return res.json();
 
-    let parsed = null;
+    let parsed;
     try {
       parsed = await res.json();
     } catch {

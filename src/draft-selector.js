@@ -54,7 +54,7 @@ export class DraftSelectorDialog {
     this.syncManager = syncManager;
   }
 
-  async render(force = true) {
+  async render() {
     const { DialogV2 } = foundry.applications.api;
 
     try {
