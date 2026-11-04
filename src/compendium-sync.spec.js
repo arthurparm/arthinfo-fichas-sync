@@ -85,3 +85,47 @@ describe('syncCompendiums — ícones por hash (FDD-71)', () => {
     expect(sent.every((item) => !('rawImg' in item))).toBe(true);
   });
 });
+
+describe('spellClassesOf — listas de classe do dnd5e (FDD-127)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const list = (type, identifier) => ({ metadata: { type, identifier } });
+  const registry = (byUuid, ready = true) => ({
+    registry: { spellLists: { ready, forSpell: (uuid) => byUuid[uuid] ?? new Set() } },
+  });
+
+  it('devolve só as listas de classe, em minúsculas, ordenadas e sem repetir', async () => {
+    const { spellClassesOf } = await import('./compendium-sync.js');
+    vi.stubGlobal('dnd5e', registry({
+      'Compendium.livro.magias.Item.a': new Set([
+        list('class', 'Wizard'), list('class', 'cleric'), list('subclass', 'lifeDomain'), list('class', 'wizard'),
+      ]),
+    }));
+    expect(spellClassesOf({ type: 'spell', uuid: 'Compendium.livro.magias.Item.a' })).toEqual(['cleric', 'wizard']);
+  });
+
+  it('sem informação não inventa: undefined pra não-magia, magia fora de lista e registro ausente', async () => {
+    const { spellClassesOf } = await import('./compendium-sync.js');
+    vi.stubGlobal('dnd5e', registry({}));
+    expect(spellClassesOf({ type: 'weapon', uuid: 'x' })).toBeUndefined();
+    expect(spellClassesOf({ type: 'spell', uuid: 'Compendium.a.b.Item.c' })).toBeUndefined();
+    vi.unstubAllGlobals();
+    expect(spellClassesOf({ type: 'spell', uuid: 'Compendium.a.b.Item.c' })).toBeUndefined();
+  });
+
+  it('syncCompendiums manda spellClasses na magia e nada nos outros itens', async () => {
+    vi.stubGlobal('dnd5e', registry({ 'Compendium.livro.itens.Item.m1': new Set([list('class', 'cleric')]) }));
+    const docs = [
+      { id: 'm1', uuid: 'Compendium.livro.itens.Item.m1', name: 'Bless', img: '', type: 'spell', getFlag: () => undefined, toObject: () => ({ system: {} }) },
+      { id: 'w1', uuid: 'Compendium.livro.itens.Item.w1', name: 'Espada', img: '', type: 'weapon', getFlag: () => undefined, toObject: () => ({ system: {} }) },
+    ];
+    global.game = { packs: { get: () => ({ metadata: { label: 'Livro' }, getDocuments: async () => docs }) } };
+    const api = { putCompendiumItemsBatch: vi.fn(async () => ({})) };
+    await syncCompendiums(api, ['livro.itens'], undefined, { imageStore: { ensure: async () => undefined, get: () => undefined } });
+    const sent = api.putCompendiumItemsBatch.mock.calls[0][0];
+    expect(sent[0].spellClasses).toEqual(['cleric']);
+    expect(sent[1].spellClasses).toBeUndefined();
+  });
+});

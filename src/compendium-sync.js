@@ -89,6 +89,37 @@ export function compendiumImg(img) {
   }
 }
 
+/**
+ * Listas de magia (classes) a que uma magia pertence, segundo o registro do dnd5e
+ * (dnd5e.registry.spellLists, alimentado pelas páginas de lista de magia do
+ * sistema e dos módulos). O site só tem as listas do SRD por id; o compêndio da
+ * mesa traz magias de outros packs, então a classe sai daqui (FDD-127).
+ * Devolve undefined quando não há o que informar (não é magia, registro
+ * indisponível ou magia em nenhuma lista de classe): o site cai no comportamento
+ * antigo, em vez de tratar "sem dado" como "nenhuma classe".
+ */
+export function spellClassesOf(doc) {
+  if (doc?.type !== 'spell') return undefined;
+  const registry = globalThis.dnd5e?.registry?.spellLists;
+  if (typeof registry?.forSpell !== 'function' || !doc.uuid) return undefined;
+  const ids = new Set();
+  for (const list of registry.forSpell(doc.uuid)) {
+    const { type, identifier } = list?.metadata ?? {};
+    if (type === 'class' && identifier) ids.add(String(identifier).toLowerCase());
+  }
+  return ids.size > 0 ? [...ids].sort() : undefined;
+}
+
+// As listas carregam de forma assíncrona depois do ready; sincronizar antes
+// disso mandaria magia sem classe. Espera um pouco e segue sem elas se não vier.
+async function waitSpellListsReady(timeoutMs = 10000) {
+  const registry = globalThis.dnd5e?.registry?.spellLists;
+  const started = Date.now();
+  while (registry && registry.ready === false && Date.now() - started < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
 function chunk(array, size) {
   const chunks = [];
   for (let i = 0; i < array.length; i += size) {
@@ -105,6 +136,7 @@ function chunk(array, size) {
 export async function syncCompendiums(apiClient, packIds, onProgress, { onImages, imageStore = new ImageStore(apiClient) } = {}) {
   const allItems = [];
   const packSummaries = [];
+  await waitSpellListsReady();
 
   for (const packId of packIds) {
     const pack = game.packs.get(packId);
@@ -120,6 +152,7 @@ export async function syncCompendiums(apiClient, packIds, onProgress, { onImages
       itemType: doc.type,
       catalogKey: readFlag(doc, 'catalogKey') ?? null,
       system: doc.toObject().system,
+      spellClasses: spellClassesOf(doc),
     }));
 
     allItems.push(...items);
