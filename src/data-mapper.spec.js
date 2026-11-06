@@ -7,6 +7,7 @@ import {
   proficiencyLevelToFoundrySkillValue,
   readActorSenses,
   readActorTraits,
+  readWeaponMasteries,
   readFoundryIdentity,
   readItemComputedCombat,
   readTraitValues,
@@ -109,6 +110,21 @@ describe('readActorSenses', () => {
   });
 });
 
+describe('readWeaponMasteries (FDD-143)', () => {
+  it('une value e bonus sem repetir, em Set, array ou objeto', () => {
+    expect(readWeaponMasteries({ mastery: { value: new Set(['sickle', 'shortbow']), bonus: new Set(['sickle', 'dagger']) } }))
+      .toEqual(['sickle', 'shortbow', 'dagger']);
+    expect(readWeaponMasteries({ mastery: { value: ['longsword'], bonus: [] } })).toEqual(['longsword']);
+    expect(readWeaponMasteries({ mastery: { value: { rapier: true, mace: false } } })).toEqual(['rapier']);
+  });
+
+  it('devolve lista vazia sem weaponProf ou sem mastery', () => {
+    expect(readWeaponMasteries(undefined)).toEqual([]);
+    expect(readWeaponMasteries({ value: new Set(['sim']) })).toEqual([]);
+    expect(readWeaponMasteries({ mastery: {} })).toEqual([]);
+  });
+});
+
 describe('readActorTraits', () => {
   it('agrega resistencias/imunidades/vulnerabilidades/proficiencias/idiomas', () => {
     const actor = {
@@ -118,7 +134,7 @@ describe('readActorTraits', () => {
           di: { value: new Set(['poison']) },
           dv: { value: new Set([]) },
           armorProf: { value: new Set(['lgt']) },
-          weaponProf: { value: new Set(['sim']) },
+          weaponProf: { value: new Set(['sim']), mastery: { value: new Set(['longsword', 'dagger']) } },
           toolProf: { value: new Set(['thief']) },
           ci: { value: new Set(['charmed']) },
           languages: { value: new Set(['common']) },
@@ -133,6 +149,7 @@ describe('readActorTraits', () => {
       damageVulnerabilities: [],
       armorProficiencies: ['lgt'],
       weaponProficiencies: ['sim'],
+      weaponMasteries: ['longsword', 'dagger'],
       toolProficiencies: [{ label: 'thief' }],
       conditionImmunities: ['charmed'],
       languages: ['common'],

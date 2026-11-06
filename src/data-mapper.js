@@ -153,6 +153,10 @@ export const TRAIT_LIST_PATHS = {
   damageVulnerabilities: 'system.traits.dv',
   armorProficiencies: 'system.traits.armorProf',
   weaponProficiencies: 'system.traits.weaponProf',
+  // Maestria em armas (dnd5e 5.x): ids de arma-base (ex.: longsword), em
+  // weaponProf.mastery.value. Foundry -> site; o builder só preenche a
+  // ficha que ainda não tem Ator vinculado (FDD-143).
+  weaponMasteries: 'system.traits.weaponProf.mastery',
   // toolProficiencies também lê `system.tools.<chave>` — ver readActorToolProficiencies.
   toolProficiencies: 'system.traits.toolProf',
   conditionImmunities: 'system.traits.ci',
@@ -237,6 +241,13 @@ export function readActorSenses(actor) {
   return result;
 }
 
+// `mastery.value` são as escolhidas; `mastery.bonus` vem de efeitos/itens que
+// concedem maestria sem escolha. As duas contam como "tem a maestria".
+export function readWeaponMasteries(weaponProf) {
+  const mastery = weaponProf?.mastery;
+  return [...new Set([...toStringList(mastery?.value), ...toStringList(mastery?.bonus)])];
+}
+
 export function readActorTraits(actor) {
   const traits = actor.system?.traits ?? {};
   return {
@@ -246,6 +257,7 @@ export function readActorTraits(actor) {
     damageVulnerabilities: readTraitValues(traits.dv),
     armorProficiencies: readTraitValues(traits.armorProf),
     weaponProficiencies: readTraitValues(traits.weaponProf),
+    weaponMasteries: readWeaponMasteries(traits.weaponProf),
     toolProficiencies: readActorToolProficiencies(actor),
     conditionImmunities: readTraitValues(traits.ci),
     languages: readTraitValues(traits.languages)
