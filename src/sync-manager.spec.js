@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LEGACY_MODULE_ID, MODULE_ID } from './module-id.js';
 import { SyncManager } from './sync-manager.js';
 
 function getProperty(object, path) {
@@ -856,5 +857,237 @@ describe('SyncManager — ataque e CD calculados pelo Foundry vão pro site (FDD
     const updates = actor.update.mock.calls.flatMap(([data]) => Object.keys(data));
     expect(updates).not.toContain('system.attributes.spell.dc');
     expect(updates).not.toContain('system.attributes.spell.attack');
+  });
+});
+
+describe('SyncManager — flags.runarcana-sync vira o id atual', () => {
+  it('o overlay manda sourceId no escopo novo e não no antigo', () => {
+    const actor = makeActor();
+    actor.items = [{
+      id: 'local-1',
+      name: 'Espada',
+      type: 'weapon',
+      img: 'icons/x.webp',
+      flags: { [LEGACY_MODULE_ID]: { sourceId: 'site-1' } },
+      getFlag: () => undefined,
+      toObject: () => ({
+        _id: 'local-1',
+        name: 'Espada',
+        type: 'weapon',
+        img: 'icons/x.webp',
+        system: {},
+        flags: { [LEGACY_MODULE_ID]: { sourceId: 'site-1' } },
+      }),
+    }];
+    const base = {};
+    new SyncManager({})._overlayItemsOntoDraft(actor, base);
+    expect(base.items[0]._id).toBe('site-1');
+    expect(base.items[0].flags[MODULE_ID].sourceId).toBe('site-1');
+    expect(base.items[0].flags).not.toHaveProperty(LEGACY_MODULE_ID);
+  });
+
+  it('item igual ainda gera update só pra apagar o escopo antigo no Ator', async () => {
+    const actor = makeActor();
+    actor.items = {
+      contents: [{
+        id: 'local-1',
+        type: 'weapon',
+        flags: { [LEGACY_MODULE_ID]: { sourceId: 'site-1' } },
+        getFlag: () => undefined,
+        toObject: () => ({
+          _id: 'local-1',
+          name: 'Espada',
+          type: 'weapon',
+          img: 'icons/x.webp',
+          system: {},
+        }),
+      }],
+    };
+    actor.createEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      items: [{ _id: 'site-1', name: 'Espada', type: 'weapon', img: 'icons/x.webp', system: {} }],
+    });
+    expect(actor.updateEmbeddedDocuments).toHaveBeenCalledOnce();
+    const [, payload] = actor.updateEmbeddedDocuments.mock.calls[0];
+    expect(payload[0]._id).toBe('local-1');
+    expect(payload[0][`flags.${LEGACY_MODULE_ID}.-=sourceId`]).toBeNull();
+    expect(payload[0][`flags.${MODULE_ID}.sourceId`]).toBe('site-1');
+    expect(payload[0].flags?.[LEGACY_MODULE_ID]).toBeUndefined();
+  });
+});
+
+describe('SyncManager — advancementOrigin do dote (FDD-140)', () => {
+  function feat(id, sourceId) {
+    return {
+      id,
+      type: 'feat',
+      getFlag: (scope, key) => (scope === MODULE_ID && key === 'sourceId' ? sourceId : undefined),
+      toObject: () => ({ _id: id, name: 'Iniciado em Magia', type: 'feat', img: 'icons/f.webp', system: {} }),
+    };
+  }
+
+  function spell(id, sourceId, origin) {
+    return {
+      id,
+      type: 'spell',
+      getFlag: (scope, key) => (scope === MODULE_ID && key === 'sourceId' ? sourceId : undefined),
+      toObject: () => ({
+        _id: id,
+        name: 'Orientação',
+        type: 'spell',
+        img: 'icons/s.webp',
+        system: {},
+        flags: { dnd5e: { advancementOrigin: origin } },
+      }),
+    };
+  }
+
+  it('cria o dote antes da magia e traduz a origem pro id local', async () => {
+    const actor = makeActor();
+    actor.items = { contents: [] };
+    actor.createEmbeddedDocuments = vi.fn(async (_type, items) => items.map((item, index) => ({
+      id: item.type === 'feat' ? 'localFeat1' : `localSpell${index}`,
+      type: item.type,
+      getFlag: (scope, key) => (
+        scope === MODULE_ID && key === 'sourceId' ? item.flags[MODULE_ID].sourceId : undefined
+      ),
+    })));
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      items: [
+        {
+          _id: 'draftSpell',
+          name: 'Orientação',
+          type: 'spell',
+          img: 'icons/s.webp',
+          system: {},
+          flags: { dnd5e: { advancementOrigin: 'draftFeat.advSpell' } },
+        },
+        {
+          _id: 'draftFeat',
+          name: 'Iniciado em Magia',
+          type: 'feat',
+          img: 'icons/f.webp',
+          system: {},
+        },
+        {
+          _id: 'clericClass0000',
+          name: 'Clérigo',
+          type: 'class',
+          img: 'icons/c.webp',
+          system: { levels: 1 },
+        },
+      ],
+    });
+
+    expect(actor.createEmbeddedDocuments).toHaveBeenCalledTimes(2);
+    const [, feats] = actor.createEmbeddedDocuments.mock.calls[0];
+    const [, rest] = actor.createEmbeddedDocuments.mock.calls[1];
+    expect(feats.map((item) => item.type)).toEqual(['feat']);
+    expect(rest.map((item) => item.type)).toEqual(['spell', 'class']);
+    const createdSpell = rest.find((item) => item.type === 'spell');
+    expect(createdSpell.flags.dnd5e.advancementOrigin).toBe('localFeat1.advSpell');
+    expect(createdSpell.flags[MODULE_ID].sourceId).toBe('draftSpell');
+    expect(rest.find((item) => item.type === 'class').flags?.dnd5e?.advancementOrigin).toBeUndefined();
+  });
+
+  it('preserva <compendiumId>.adv mesmo com a classe no mesmo passe', async () => {
+    const actor = makeActor();
+    actor.items = { contents: [] };
+    actor.createEmbeddedDocuments = vi.fn(async () => []);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      items: [
+        { _id: 'clericClass0000', name: 'Clérigo', type: 'class', system: { levels: 1 } },
+        {
+          _id: 'draftSpell',
+          name: 'Orientação',
+          type: 'spell',
+          system: {},
+          flags: { dnd5e: { advancementOrigin: 'clericClass0000.adv' } },
+        },
+      ],
+    });
+    const created = actor.createEmbeddedDocuments.mock.calls.flatMap(([, items]) => items);
+    const spellItem = created.find((item) => item.type === 'spell');
+    expect(spellItem.flags.dnd5e.advancementOrigin).toBe('clericClass0000.adv');
+  });
+
+  it('não atualiza a magia quando a origem do draft já é o id local do dote', async () => {
+    const actor = makeActor();
+    actor.items = {
+      contents: [
+        feat('localFeat1', 'draftFeat'),
+        spell('localSpell', 'draftSpell', 'localFeat1.advSpell'),
+      ],
+    };
+    actor.createEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      items: [
+        { _id: 'draftFeat', name: 'Iniciado em Magia', type: 'feat', img: 'icons/f.webp', system: {} },
+        {
+          _id: 'draftSpell',
+          name: 'Orientação',
+          type: 'spell',
+          img: 'icons/s.webp',
+          system: {},
+          flags: { dnd5e: { advancementOrigin: 'draftFeat.advSpell' } },
+        },
+      ],
+    });
+    expect(actor.updateEmbeddedDocuments).not.toHaveBeenCalled();
+    expect(actor.createEmbeddedDocuments).not.toHaveBeenCalled();
+  });
+
+  it('magia já no Ator recebe a origem traduzida no mesmo passe em que o dote nasce', async () => {
+    const actor = makeActor();
+    actor.items = { contents: [spell('localSpell', 'draftSpell', 'clericClass0000.adv')] };
+    actor.createEmbeddedDocuments = vi.fn(async (_type, items) => items.map((item) => ({
+      id: 'localFeat1',
+      type: item.type,
+      getFlag: (scope, key) => (
+        scope === MODULE_ID && key === 'sourceId' ? item.flags[MODULE_ID].sourceId : undefined
+      ),
+    })));
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    await new SyncManager({})._applyRemoteDraft(actor, {
+      items: [
+        { _id: 'draftFeat', name: 'Iniciado em Magia', type: 'feat', img: 'icons/f.webp', system: {} },
+        {
+          _id: 'draftSpell',
+          name: 'Orientação',
+          type: 'spell',
+          img: 'icons/s.webp',
+          system: {},
+          flags: { dnd5e: { advancementOrigin: 'draftFeat.advSpell' } },
+        },
+      ],
+    });
+    expect(actor.createEmbeddedDocuments).toHaveBeenCalledOnce();
+    const [, updated] = actor.updateEmbeddedDocuments.mock.calls[0];
+    expect(updated[0]._id).toBe('localSpell');
+    expect(updated[0].flags.dnd5e.advancementOrigin).toBe('localFeat1.advSpell');
+  });
+
+  it('o overlay destraduz só origem cujo prefixo é o id local de um dote', () => {
+    const actor = makeActor();
+    actor.items = [
+      feat('localFeat1', 'draftFeat'),
+      spell('localSpell', 'draftSpell', 'localFeat1.advSpell'),
+      spell('localKnown', 'draftKnown', 'clericClass0000.adv'),
+    ];
+    const base = {};
+    new SyncManager({})._overlayItemsOntoDraft(actor, base);
+    const byId = Object.fromEntries(base.items.map((item) => [item._id, item]));
+    expect(byId.draftSpell.flags.dnd5e.advancementOrigin).toBe('draftFeat.advSpell');
+    expect(byId.draftKnown.flags.dnd5e.advancementOrigin).toBe('clericClass0000.adv');
   });
 });

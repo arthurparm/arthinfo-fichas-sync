@@ -23,7 +23,14 @@ import { applyItemCast } from './apply-item-cast.js';
 import { applyRest } from './apply-rest.js';
 import { applySpellSlot } from './apply-spell-slot.js';
 import { isCachedSpell } from './cached-spell.js';
-import { LEGACY_MODULE_ID, MODULE_ID, readFlag } from './module-id.js';
+import {
+  draftFeatIdsToLocalIds,
+  forgetDeletedFeatIds,
+  localFeatIdsToDraftIds,
+  rememberCreatedFeats,
+  rewriteItemAdvancementOrigin,
+} from './origin-link.js';
+import { LEGACY_MODULE_ID, MODULE_ID, adoptLegacyModuleFlags, legacyModuleFlagDeletions, readFlag } from './module-id.js';
 import { clearFirstSyncPending, shouldSeedDraftFromActor } from './first-link.js';
 import { encodePortrait } from './portrait.js';
 import { ImageStore, isImageRef } from './image-store.js';
@@ -50,13 +57,47 @@ function cleanItemData(itemData) {
   // computed é Foundry -> site só (FDD-54): toObject() local não tem labels e o
   // Foundry rejeitaria o campo extra no schema do Item.
   delete cleaned.computed;
+  // flags.runarcana-sync vira flags.arthinfo-fichas-sync. O sourceId não some:
+  // muda de escopo. Sem isso o draft e o próximo update regravavam o id antigo.
+  adoptLegacyModuleFlags(cleaned);
   if (cleaned.flags) {
     delete cleaned.flags.core;
     delete cleaned.flags.exportSource;
-    // IMPORTANTE: Nunca delete a flag <id do módulo>.sourceId (novo ou legado) durante a limpeza,
-    // pois ela é a chave primária de sincronização.
   }
   return cleaned;
+}
+
+// Diff de item já existente. A origem do dote entra traduzida pro id local,
+// senão todo sync veria "<id do draft>.<adv>" contra "<id do Ator>.<adv>".
+function preparedItemUpdate(lItem, sanitizedRemoteItem, remoteId) {
+  const lItemClean = cleanItemData(lItem.toObject());
+  const rItemClean = cleanItemData(sanitizedRemoteItem);
+  // O avanço de classe/raça/antecedente é do Foundry: o site só manda o de PV
+  // na criação. Comparar ou reescrever aqui apagaria o avanço real do Ator.
+  if (KEEP_LOCAL_ADVANCEMENT_TYPES.has(lItemClean.type)) {
+    if (lItemClean.system) delete lItemClean.system.advancement;
+    if (rItemClean.system) delete rItemClean.system.advancement;
+  }
+
+  rItemClean._id = lItemClean._id;
+  for (const scope of [MODULE_ID, LEGACY_MODULE_ID]) {
+    if (lItemClean.flags?.[scope]) delete lItemClean.flags[scope];
+    if (rItemClean.flags?.[scope]) delete rItemClean.flags[scope];
+  }
+
+  const changed = JSON.stringify(lItemClean) !== JSON.stringify(rItemClean);
+  const flagFix = legacyModuleFlagDeletions(lItem);
+  if (!changed && !flagFix) return null;
+  if (!changed) return { flagFix };
+
+  const updatePayload = sanitizedRemoteItem;
+  updatePayload._id = lItem.id;
+  if (KEEP_LOCAL_ADVANCEMENT_TYPES.has(lItemClean.type) && updatePayload.system) {
+    delete updatePayload.system.advancement;
+  }
+  foundry.utils.setProperty(updatePayload, `flags.${MODULE_ID}.sourceId`, remoteId);
+  // O escopo antigo sai num update só com "-=", sem misturar no item inteiro.
+  return { content: updatePayload, flagFix };
 }
 
 /**
@@ -368,8 +409,12 @@ export class SyncManager {
       const remoteItems = data.items.filter((item) => !isCachedSpell(item));
       const localItems = actor.items.contents;
 
-      const toCreate = [];
-      const toUpdate = [];
+      // Dote já no Ator: _id do draft → id local. Classe não entra.
+      // "<compendiumId>.adv" (o que o site grava hoje) não é _id de dote e fica.
+      const draftFeatToLocal = draftFeatIdsToLocalIds(localItems);
+      const toCreateFeats = [];
+      const toCreateRest = [];
+      const pendingUpdates = [];
       const toDelete = [];
 
       for (const rItem of remoteItems) {
@@ -381,6 +426,7 @@ export class SyncManager {
         // Sanitiza e formata o item (Especialmente as Activities de magias como Marca da Presa)
         const sanitizedRemoteItem = sanitizeActivities(foundry.utils.deepClone(rItem));
         delete sanitizedRemoteItem.computed;
+        adoptLegacyModuleFlags(sanitizedRemoteItem);
         // img:<hash> é referência do site: o Ator guarda sempre o caminho do Foundry.
         if (isImageRef(sanitizedRemoteItem.img)) {
           const known = this.images.pathOf(sanitizedRemoteItem.img);
@@ -394,35 +440,10 @@ export class SyncManager {
           const newItem = sanitizedRemoteItem;
           foundry.utils.setProperty(newItem, `flags.${MODULE_ID}.sourceId`, rItem._id);
           delete newItem._id; // O Foundry DEVE gerar o _id local
-          toCreate.push(newItem);
+          if (newItem.type === 'feat') toCreateFeats.push(newItem);
+          else toCreateRest.push(newItem);
         } else {
-          // Atualização de item existente
-          const lItemClean = cleanItemData(lItem.toObject());
-          const rItemClean = cleanItemData(sanitizedRemoteItem);
-          // O avanço de classe/raça/antecedente é do Foundry: o site só manda o de PV
-          // na criação. Comparar ou reescrever aqui apagaria o avanço real do Ator.
-          if (KEEP_LOCAL_ADVANCEMENT_TYPES.has(lItemClean.type)) {
-            if (lItemClean.system) delete lItemClean.system.advancement;
-            if (rItemClean.system) delete rItemClean.system.advancement;
-          }
-
-          // Iguala os IDs temporariamente para a comparação de diff não falhar por isso
-          rItemClean._id = lItemClean._id;
-          for (const scope of [MODULE_ID, LEGACY_MODULE_ID]) {
-            if (lItemClean.flags?.[scope]) delete lItemClean.flags[scope];
-            if (rItemClean.flags?.[scope]) delete rItemClean.flags[scope];
-          }
-
-          // Compara os objetos limpos
-          if (JSON.stringify(lItemClean) !== JSON.stringify(rItemClean)) {
-            const updatePayload = sanitizedRemoteItem;
-            updatePayload._id = lItem.id; // Usa o ID local do Foundry
-            if (KEEP_LOCAL_ADVANCEMENT_TYPES.has(lItemClean.type) && updatePayload.system) {
-              delete updatePayload.system.advancement;
-            }
-            foundry.utils.setProperty(updatePayload, `flags.${MODULE_ID}.sourceId`, rItem._id);
-            toUpdate.push(updatePayload);
-          }
+          pendingUpdates.push({ sanitizedRemoteItem, lItem, remoteId: rItem._id });
         }
       }
 
@@ -439,10 +460,31 @@ export class SyncManager {
         }
       }
 
-      // Executa as mutações no banco local do Foundry em Lote
+      // Dote que este passe apaga não pode emprestar o id local pra uma magia.
+      forgetDeletedFeatIds(draftFeatToLocal, toDelete);
       if (toDelete.length > 0) await actor.deleteEmbeddedDocuments("Item", toDelete);
-      if (toCreate.length > 0) await actor.createEmbeddedDocuments("Item", toCreate);
+
+      // Duas fases (FDD-140): o dote precisa existir antes da magia, porque
+      // advancementOrigin novo é "<_id do dote no draft>.<advId>" e o dnd5e
+      // exige o id local. Origem desconhecida não é reescrita.
+      for (const item of toCreateFeats) rewriteItemAdvancementOrigin(item, draftFeatToLocal);
+      if (toCreateFeats.length > 0) {
+        const createdFeats = await actor.createEmbeddedDocuments("Item", toCreateFeats);
+        rememberCreatedFeats(createdFeats, draftFeatToLocal);
+      }
+      for (const item of toCreateRest) rewriteItemAdvancementOrigin(item, draftFeatToLocal);
+      const toUpdate = [];
+      const flagFixes = [];
+      for (const pending of pendingUpdates) {
+        rewriteItemAdvancementOrigin(pending.sanitizedRemoteItem, draftFeatToLocal);
+        const prepared = preparedItemUpdate(pending.lItem, pending.sanitizedRemoteItem, pending.remoteId);
+        if (!prepared) continue;
+        if (prepared.content) toUpdate.push(prepared.content);
+        if (prepared.flagFix) flagFixes.push({ _id: pending.lItem.id, ...prepared.flagFix });
+      }
+      if (toCreateRest.length > 0) await actor.createEmbeddedDocuments("Item", toCreateRest);
       if (toUpdate.length > 0) await actor.updateEmbeddedDocuments("Item", toUpdate);
+      if (flagFixes.length > 0) await actor.updateEmbeddedDocuments("Item", flagFixes);
     }
 
     // 3b. Classe sem avanço de PV (Ator criado por versão antiga do builder):
@@ -618,12 +660,15 @@ export class SyncManager {
 
   _overlayItemsOntoDraft(actor, base) {
     const itemsData = [];
+    // Id local do dote → _id no draft. Prefixo que não é dote nosso fica como está.
+    const localFeatToDraft = localFeatIdsToDraftIds(actor.items);
     for (const item of actor.items) {
       if (isCachedSpell(item)) continue; // cache do dnd5e não é item da ficha (FDD-117)
       try {
         const data = item.toObject();
         data._id = readFlag(item, 'sourceId') || data._id;
         data.img = this._imgOf(data.img);
+        rewriteItemAdvancementOrigin(data, localFeatToDraft);
         const cleaned = cleanItemData(data);
         // advancement de classe/raça é enorme e não é lido pela ficha —
         // sem isso o PUT às vezes falha e o item de classe some do draft.
