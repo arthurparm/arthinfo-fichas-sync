@@ -13,11 +13,20 @@ export const PORTRAIT_MAX_CHARS = 80_000;
 // Teto dos bytes de uma imagem enviada à API (ela aceita 128 KB).
 export const IMAGE_MAX_BYTES = 96 * 1024;
 
-// Arte padrão do Foundry/dnd5e não identifica ninguém: melhor sem retrato.
+const SVG_BACKDROP = '#1c1915';
+
+function isSvgPath(img) {
+  return /\.svg(?:[?#].*)?$/i.test(String(img));
+}
+
+// Silhueta vazia: mystery-man, a caixa, e o ator padrão do dnd5e
+// (icons/svg/actors/*.svg). Ícone de item em icons/svg/items (e o resto)
+// é arte de verdade e sobe para a API (FDD-154).
 export function isGenericPortrait(img) {
   if (!img) return true;
-  const path = String(img);
-  return path.includes('mystery-man') || path.includes('icons/svg/');
+  const path = String(img).replace(/\\/g, '/').split(/[?#]/, 1)[0];
+  if (path.includes('mystery-man') || path.includes('icons/svg/item-bag')) return true;
+  return /icons\/svg\/actors\/[^/]+\.svg$/i.test(path);
 }
 
 export function fitWithin(width, height, max = PORTRAIT_MAX_SIDE) {
@@ -59,7 +68,14 @@ export async function encodeImage(
       const canvas = doc.createElement('canvas');
       canvas.width = size.width;
       canvas.height = size.height;
-      canvas.getContext('2d').drawImage(image, 0, 0, size.width, size.height);
+      const ctx = canvas.getContext('2d');
+      // SVG do dnd5e é glifo branco (var(--icon-fill, #fff)) sem fundo: sobre o
+      // cartão branco da ficha some. Fundo escuro opaco, igual ao marcador.
+      if (isSvgPath(img) && ctx.fillRect) {
+        ctx.fillStyle = SVG_BACKDROP;
+        ctx.fillRect(0, 0, size.width, size.height);
+      }
+      ctx.drawImage(image, 0, 0, size.width, size.height);
       const url = canvas.toDataURL('image/webp', quality);
       if (url.startsWith('data:image/webp') && url.length <= maxChars) return url;
     }
