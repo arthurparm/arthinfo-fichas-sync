@@ -237,8 +237,11 @@ function onToggleItem(event, target) {
 }
 
 export class CompendiumSyncDialog {
-  constructor(apiClient) {
+  // imageStore: o mesmo do SyncManager (FDD-156), pra o mapa hash -> caminho
+  // do compêndio servir à criação de itens vindos da ficha do site.
+  constructor(apiClient, { imageStore } = {}) {
     this.apiClient = apiClient;
+    this.imageStore = imageStore;
   }
 
   async render() {
@@ -347,6 +350,7 @@ export class CompendiumSyncDialog {
                   ui.notifications.info(`Arthinfo Fichas: sincronizando lote ${current} de ${total}...`);
                 },
                 {
+                  imageStore: this.imageStore,
                   onImages: (done, total) => {
                     ui.notifications.info(`Arthinfo Fichas: enviando ícones ${done} de ${total}...`);
                   },

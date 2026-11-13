@@ -157,3 +157,35 @@ describe('SyncManager com imagens por hash (FDD-71)', () => {
     expect(actor.updateEmbeddedDocuments).not.toHaveBeenCalled();
   });
 });
+
+describe('ImageStore: mapa referência -> caminho entre sessões (FDD-156)', () => {
+  const memoryStorage = () => {
+    const data = new Map();
+    return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v) };
+  };
+  const make = (storage) => {
+    const api = { missingImages: vi.fn(async (h) => h), uploadImages: vi.fn(async () => ({})) };
+    const encode = vi.fn(async (path) => dataUrl(path));
+    return new ImageStore(api, { encode, storage, now: () => 1_000_000 });
+  };
+
+  it('uma sessão nova ainda sabe o caminho de um hash enviado antes', async () => {
+    const storage = memoryStorage();
+    await make(storage).ensure(['modules/pack/assets/icons/items/arte.webp']);
+
+    const next = make(storage);
+    const ref = imageRef(hashOf('modules/pack/assets/icons/items/arte.webp'));
+    expect(next.pathOf(ref)).toBe('modules/pack/assets/icons/items/arte.webp');
+    expect(next.get('modules/pack/assets/icons/items/arte.webp')).toBeUndefined();
+  });
+
+  it('armazenamento ausente, quebrado ou com lixo não derruba o store', async () => {
+    expect(() => make(null)).not.toThrow();
+    const broken = { getItem: () => '{nao e json', setItem: () => { throw new Error('cheio'); } };
+    const store = make(broken);
+    await expect(store.ensure(['icons/a.webp'])).resolves.toBeUndefined();
+    expect(store.get('icons/a.webp')).toBe(imageRef(hashOf('icons/a.webp')));
+    const junk = { getItem: () => JSON.stringify([['img:curto', 'x'], [imageRef('a'.repeat(64)), 7]]), setItem: () => {} };
+    expect(make(junk).paths.size).toBe(0);
+  });
+});

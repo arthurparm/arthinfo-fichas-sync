@@ -1091,3 +1091,71 @@ describe('SyncManager — advancementOrigin do dote (FDD-140)', () => {
     expect(byId.draftKnown.flags.dnd5e.advancementOrigin).toBe('clericClass0000.adv');
   });
 });
+
+describe('SyncManager.startListening — ficha apagada no site (FDD-155)', () => {
+  const linkedActor = () => ({ ...makeActor(), name: 'Lucas', getFlag: () => 'draft-apagado', unsetFlag: vi.fn() });
+
+  it('draft 404: não abre o stream, não notifica erro e registra o Ator', async () => {
+    global.ui = { notifications: { error: vi.fn(), warn: vi.fn() } };
+    const apiClient = { clientId: 'c', getDraft: vi.fn().mockResolvedValue(null), listDrafts: vi.fn().mockResolvedValue([{ id: 'outra' }]), openStream: vi.fn() };
+    const manager = new SyncManager(apiClient);
+    const actor = linkedActor();
+
+    await manager.startListening(actor);
+
+    expect(apiClient.openStream).not.toHaveBeenCalled();
+    expect(ui.notifications.error).not.toHaveBeenCalled();
+    expect(manager.streams.has(actor.id)).toBe(false);
+    expect(manager.missingDrafts.get(actor.id)).toBe(actor);
+  });
+
+  it('404 que a API não confirma (outro servidor na porta) não vira ficha apagada', async () => {
+    global.ui = { notifications: { error: vi.fn(), warn: vi.fn() } };
+    for (const listDrafts of [vi.fn().mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404 })), vi.fn().mockResolvedValue('<html>')]) {
+      const manager = new SyncManager({ clientId: 'c', getDraft: vi.fn().mockResolvedValue(null), listDrafts, openStream: vi.fn() });
+      const actor = linkedActor();
+      await manager.startListening(actor);
+      expect(manager.missingDrafts.size).toBe(0);
+    }
+    expect(ui.notifications.error).toHaveBeenCalledTimes(2);
+  });
+
+  it('ficha que a lista da API ainda mostra não é tratada como apagada', async () => {
+    global.ui = { notifications: { error: vi.fn(), warn: vi.fn() } };
+    const manager = new SyncManager({ clientId: 'c', getDraft: vi.fn().mockResolvedValue(null), listDrafts: vi.fn().mockResolvedValue([{ id: 'draft-apagado' }]), openStream: vi.fn() });
+    await manager.startListening(linkedActor());
+    expect(manager.missingDrafts.size).toBe(0);
+  });
+
+  it('stopListening tira o Ator da lista de fichas apagadas', async () => {
+    const manager = new SyncManager({ clientId: 'c', getDraft: vi.fn().mockResolvedValue(null), listDrafts: vi.fn().mockResolvedValue([]), openStream: vi.fn() });
+    const actor = linkedActor();
+    await manager.startListening(actor);
+    manager.stopListening(actor);
+    expect(manager.missingDrafts.size).toBe(0);
+  });
+
+  it('404 do stream com o Foundry aberto avisa uma vez só', async () => {
+    global.ui = { notifications: { error: vi.fn(), warn: vi.fn() } };
+    let onError;
+    const apiClient = {
+      clientId: 'c',
+      getDraft: vi.fn().mockResolvedValue({ id: 'draft-apagado' }),
+      openStream: vi.fn(async (_id, _msg, errorHandler) => {
+        onError = errorHandler;
+        return { close: vi.fn() };
+      }),
+    };
+    const manager = new SyncManager(apiClient);
+    manager._applyRemoteDraft = vi.fn();
+    manager._executeActorUpdate = vi.fn();
+    manager._executeItemUpdate = vi.fn();
+    await manager.startListening(linkedActor());
+
+    onError(Object.assign(new Error('x'), { status: 404 }));
+    onError(Object.assign(new Error('x'), { status: 404 }));
+
+    expect(ui.notifications.warn).toHaveBeenCalledTimes(1);
+    expect(ui.notifications.error).not.toHaveBeenCalled();
+  });
+});

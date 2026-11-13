@@ -33,13 +33,45 @@ function openCompendiumSyncDialog() {
     mesaKey,
     baseUrl: BACKEND_URL,
   });
-  new CompendiumSyncDialog(client).render();
+  new CompendiumSyncDialog(client, { imageStore: syncManager?.images }).render();
 }
 
 async function unlinkActor(actor, message) {
   syncManager?.stopListening(actor);
   await clearFlag(actor, 'draftId');
   ui.notifications.info(message ?? `${actor.name}: desvinculado da ficha.`);
+}
+
+// FDD-155: Atores vinculados a uma ficha apagada no site. Uma pergunta por
+// mundo (não um erro por Ator); só o GM pode desvincular. "Manter" não muda
+// nada e a pergunta volta na próxima carga, porque o vínculo continua quebrado.
+async function offerUnlinkMissingDrafts() {
+  const missing = [...(syncManager?.missingDrafts.values() ?? [])];
+  if (!missing.length || !game.user.isGM) return;
+  const names = missing
+    .map(actor => `<li>${foundry.utils.escapeHTML(actor.name)} <code>${foundry.utils.escapeHTML(String(readFlag(actor, 'draftId')))}</code></li>`)
+    .join('');
+  const { DialogV2 } = foundry.applications.api;
+  const unlink = await DialogV2.confirm({
+    window: { title: 'Fichas apagadas no site' },
+    content: `<p>Estes Atores estão vinculados a uma ficha que não existe mais no site:</p><ul>${names}</ul>
+      <p>Desvincular agora? O Ator e seus dados no Foundry não são apagados.</p>`,
+    yes: { label: 'Desvincular' },
+    no: { label: 'Manter vinculados' },
+  });
+  if (!unlink) return;
+  let done = 0;
+  for (const actor of missing) {
+    try {
+      console.info(`Arthinfo Fichas | Desvinculando ${actor.name} da ficha apagada ${readFlag(actor, 'draftId')}.`);
+      await clearFlag(actor, 'draftId');
+      syncManager.stopListening(actor);
+      done += 1;
+    } catch (error) {
+      console.warn(`Arthinfo Fichas | Não foi possível desvincular ${actor.name}:`, error);
+    }
+  }
+  ui.notifications.info(`Arthinfo Fichas: ${done} de ${missing.length} Ator(es) desvinculado(s) da ficha apagada.`);
 }
 
 // Limpeza pra duplicatas que já existiam no mundo antes do hook createActor
@@ -170,13 +202,16 @@ Hooks.once('ready', async () => {
   syncManager = new SyncManager(apiClient);
 
   await cleanupDuplicateDraftLinks();
-  game.actors.forEach(actor => syncManager.startListening(actor));
+  await Promise.all(game.actors.map(actor => syncManager.startListening(actor)));
   console.log('Arthinfo Fichas | Backend configurado e ouvindo atores vinculados.');
 
   if (thisModule) {
     thisModule.api.apiClient = apiClient;
     thisModule.api.syncManager = syncManager;
   }
+
+  // Sem await: a pergunta não segura a API pública do módulo (macros).
+  offerUnlinkMissingDrafts().catch(error => console.warn('Arthinfo Fichas | Falha ao oferecer o desvínculo:', error));
 });
 
 Hooks.on('updateActor', (actor, changes, options, userId) => {
