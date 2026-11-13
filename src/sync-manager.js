@@ -218,6 +218,9 @@ export class SyncManager {
   constructor(apiClient) {
     this.apiClient = apiClient;
     this.streams = new Map();
+    // Atores vinculados a uma ficha que não existe mais (apagada no site,
+    // FDD-155): o index.js pergunta uma vez se o mestre quer desvincular.
+    this.missingDrafts = new Map();
     this.activeSyncs = new Set();
     // Última ficha completa conhecida por ator, pra poder mesclar os campos
     // que o Foundry não conhece (concept, identity, equipment, etc.) ao
@@ -264,6 +267,19 @@ export class SyncManager {
     try {
       try {
         const initialDraft = await this.apiClient.getDraft(draftId);
+        if (initialDraft === null) {
+          // 404: a ficha foi apagada no site. Abrir o stream só geraria um
+          // erro por Ator a cada carga (FDD-155).
+          if (await this._draftIsReallyMissing(draftId)) {
+            this.streams.delete(actor.id);
+            this.missingDrafts.set(actor.id, actor);
+            return;
+          }
+          // O 404 não veio da API (outro servidor na porta, rota errada): não
+          // trata como ficha apagada, o mestre não pode desvincular por isso.
+          throw new Error('A API respondeu 404 para a ficha, mas não confirmou a lista de fichas. Confira o endereço do backend.');
+        }
+        this.missingDrafts.delete(actor.id);
         if (initialDraft) {
           this.lastKnownDraft.set(actor.id, initialDraft);
           // FDD-60: primeiro vínculo de um Ator que já é personagem: o Ator
@@ -320,6 +336,16 @@ export class SyncManager {
           }
         },
         (error) => {
+          if (error?.status === 404) {
+            // Ficha apagada com o Foundry aberto: o stream já não reconecta.
+            if (!this.missingDrafts.has(actor.id)) {
+              this.missingDrafts.set(actor.id, actor);
+              ui.notifications.warn(
+                `Arthinfo Fichas: a ficha de ${actor.name} foi apagada no site. Desvincule o Ator pelo menu da ficha: as edições dele no Foundry não têm para onde ir.`,
+              );
+            }
+            return;
+          }
           console.warn('Arthinfo Fichas | Stream desconectado, tentando reconectar automaticamente:', error);
         },
       );
@@ -331,6 +357,14 @@ export class SyncManager {
     }
   }
 
+  // Confirma a ausência: só a API devolve a lista de fichas (200 com array).
+  // Quem não é a API (ou erro de rede) lança, e quem chama vira erro normal.
+  async _draftIsReallyMissing(draftId) {
+    const drafts = await this.apiClient.listDrafts();
+    if (!Array.isArray(drafts)) return false;
+    return !drafts.some((draft) => draft?.id === draftId);
+  }
+
   stopListening(actor) {
     const handle = this.streams.get(actor.id);
     if (handle) {
@@ -340,6 +374,7 @@ export class SyncManager {
     this.lastKnownDraft.delete(actor.id);
     this.lastBiography.delete(actor.id);
     this.portraits.delete(actor.id);
+    this.missingDrafts.delete(actor.id);
   }
 
   async _applyRemoteDraft(actor, data, { seedFromActor = false } = {}) {

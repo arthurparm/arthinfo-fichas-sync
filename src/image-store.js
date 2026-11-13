@@ -11,6 +11,18 @@ const UPLOAD_BATCH_BYTES = 1_000_000;
 const CHECK_BATCH = 500;
 // Depois de uma falha (API antiga/fora do ar), não insiste a cada save.
 const RETRY_AFTER_MS = 60_000;
+// O mapa referência -> caminho sobrevive entre sessões (FDD-156): item do
+// compêndio entra na ficha do site com img:<hash> e o Ator só sabe o caminho.
+const PATHS_STORAGE_KEY = 'arthinfo-fichas-sync.imagePaths';
+const PATHS_STORAGE_MAX = 6_000;
+
+function defaultStorage() {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const imageRef = (hash) => `${REF_PREFIX}${hash}`;
 export const isImageRef = (value) => typeof value === 'string' && REF_RE.test(value);
@@ -36,14 +48,35 @@ function chunk(array, size) {
 }
 
 export class ImageStore {
-  constructor(apiClient, { encode = encodeImage, now = () => Date.now() } = {}) {
+  constructor(apiClient, { encode = encodeImage, now = () => Date.now(), storage = defaultStorage() } = {}) {
     this.apiClient = apiClient;
     this.encode = encode;
     this.now = now;
+    this.storage = storage;
     // caminho do Foundry -> referência; e o inverso, pra volta draft -> Ator.
     this.refs = new Map();
     this.paths = new Map();
     this.failedAt = new Map();
+    this._loadPaths();
+  }
+
+  _loadPaths() {
+    try {
+      const saved = JSON.parse(this.storage?.getItem(PATHS_STORAGE_KEY) ?? '[]');
+      for (const [ref, path] of saved) {
+        if (isImageRef(ref) && typeof path === 'string' && path) this.paths.set(ref, path);
+      }
+    } catch {
+      // Armazenamento indisponível ou corrompido: segue só com a sessão.
+    }
+  }
+
+  _savePaths() {
+    try {
+      this.storage?.setItem(PATHS_STORAGE_KEY, JSON.stringify([...this.paths].slice(-PATHS_STORAGE_MAX)));
+    } catch {
+      // Sem espaço ou bloqueado: o mapa continua valendo nesta sessão.
+    }
   }
 
   /** Referência já pronta pro caminho, ou undefined (o chamador usa o caminho). */
@@ -51,7 +84,7 @@ export class ImageStore {
     return this.refs.get(path);
   }
 
-  /** Caminho do Foundry de uma referência gerada nesta sessão. */
+  /** Caminho do Foundry de uma referência gerada por este módulo (nesta ou numa sessão anterior). */
   pathOf(ref) {
     return this.paths.get(ref);
   }
@@ -102,6 +135,7 @@ export class ImageStore {
         this.refs.set(image.path, ref);
         if (!this.paths.has(ref)) this.paths.set(ref, image.path);
       }
+      this._savePaths();
     } catch (error) {
       // API antiga (sem /api/images), fora do ar ou chave inválida: segue com o
       // caminho; tenta de novo em 1 minuto.
