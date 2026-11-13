@@ -1,14 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PORTRAIT_MAX_CHARS, encodePortrait, fitWithin, isGenericPortrait } from './portrait.js';
+import { PORTRAIT_MAX_CHARS, encodeImage, encodePortrait, fitWithin, isGenericPortrait } from './portrait.js';
 import { SyncManager } from './sync-manager.js';
 
-function fakeDoc(dataUrl, { onCanvas } = {}) {
+function fakeDoc(dataUrl, { onCanvas, ctxs = [] } = {}) {
   return {
     createElement: () => {
+      const ctx = { drawImage: vi.fn(), fillRect: vi.fn(), fillStyle: '' };
+      ctxs.push(ctx);
       const canvas = {
         width: 0,
         height: 0,
-        getContext: () => ({ drawImage: vi.fn() }),
+        getContext: () => ctx,
         toDataURL: (type, quality) => {
           onCanvas?.(canvas, type, quality);
           return typeof dataUrl === 'function' ? dataUrl(canvas) : dataUrl;
@@ -21,10 +23,30 @@ function fakeDoc(dataUrl, { onCanvas } = {}) {
 
 const load = (width, height) => async () => ({ naturalWidth: width, naturalHeight: height });
 
+describe('SVG ganha fundo escuro (FDD-154)', () => {
+  it('pinta o fundo antes de desenhar SVG, e não para outros formatos', async () => {
+    const ctxs = [];
+    const doc = fakeDoc('data:image/webp;base64,AAAA', { ctxs });
+    await encodeImage('systems/dnd5e/icons/svg/items/spell.svg', { doc, load: load(64, 64) });
+    expect(ctxs[0].fillRect).toHaveBeenCalledWith(0, 0, 64, 64);
+    expect(ctxs[0].fillStyle).toBe('#1c1915');
+    const png = [];
+    await encodeImage('icons/x.png', { doc: fakeDoc('data:image/webp;base64,AAAA', { ctxs: png }), load: load(64, 64) });
+    expect(png[0].fillRect).not.toHaveBeenCalled();
+  });
+
+  it('query string não esconde a silhueta do ator', () => {
+    expect(isGenericPortrait('systems/dnd5e/icons/svg/actors/character.svg?v=1')).toBe(true);
+  });
+});
+
 describe('retrato embutido na ficha (FDD-71)', () => {
   it('arte padrão do Foundry não vira retrato', () => {
     expect(isGenericPortrait('icons/svg/mystery-man.svg')).toBe(true);
+    expect(isGenericPortrait('icons/svg/item-bag.svg')).toBe(true);
     expect(isGenericPortrait('systems/dnd5e/icons/svg/actors/character.svg')).toBe(true);
+    expect(isGenericPortrait('systems/dnd5e/icons/svg/actors/npc.svg')).toBe(true);
+    expect(isGenericPortrait('systems/dnd5e/icons/svg/items/spell.svg')).toBe(false);
     expect(isGenericPortrait('')).toBe(true);
     expect(isGenericPortrait('worlds/mundo/tokens/lucas.webp')).toBe(false);
   });

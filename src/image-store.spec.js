@@ -46,6 +46,18 @@ describe('ImageStore (FDD-71)', () => {
     expect(api.missingImages).toHaveBeenCalledTimes(1);
   });
 
+  it('envia o SVG de item do dnd5e e continua ignorando mystery-man e item-bag (FDD-154)', async () => {
+    const { encode, store } = makeStore();
+    const spell = 'systems/dnd5e/icons/svg/items/spell.svg';
+    const actor = 'systems/dnd5e/icons/svg/actors/character.svg';
+    await store.ensure([spell, actor, 'icons/svg/mystery-man.svg', 'systems/dnd5e/icons/svg/item-bag.svg']);
+    expect(encode).toHaveBeenCalledTimes(1);
+    expect(store.get(spell)).toBe(imageRef(hashOf(spell)));
+    expect(store.get(actor)).toBeUndefined();
+    expect(store.get('icons/svg/mystery-man.svg')).toBeUndefined();
+    expect(store.get('systems/dnd5e/icons/svg/item-bag.svg')).toBeUndefined();
+  });
+
   it('imagem que não dá pra reduzir fica sem referência (o chamador usa o caminho)', async () => {
     const { store } = makeStore();
     await store.ensure(['icons/falha.png']);
