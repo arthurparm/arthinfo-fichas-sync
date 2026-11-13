@@ -1,6 +1,6 @@
 {
   "name": "foundry-module",
-  "version": "0.1.9",
+  "version": "0.1.13",
   "description": "",
   "main": "index.js",
   "scripts": {
