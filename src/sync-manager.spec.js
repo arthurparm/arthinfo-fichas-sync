@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LEGACY_MODULE_ID, MODULE_ID } from './module-id.js';
-import { SyncManager } from './sync-manager.js';
+import { SyncManager, debounceByActor } from './sync-manager.js';
 
 function getProperty(object, path) {
   return path.split('.').reduce((value, key) => (value === undefined || value === null ? undefined : value[key]), object);
@@ -1157,5 +1157,23 @@ describe('SyncManager.startListening — ficha apagada no site (FDD-155)', () =>
 
     expect(ui.notifications.warn).toHaveBeenCalledTimes(1);
     expect(ui.notifications.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('debounceByActor (FDD-75)', () => {
+  it('edição de um Ator não cancela a de outro dentro da janela', () => {
+    vi.useFakeTimers();
+    try {
+      const fn = vi.fn();
+      const debounced = debounceByActor(fn, 1000);
+      debounced({ id: 'a1' }, 'd1');
+      debounced({ id: 'a2' }, 'd2');
+      debounced({ id: 'a1' }, 'd1');
+      vi.advanceTimersByTime(1000);
+      expect(fn).toHaveBeenCalledTimes(2);
+      expect(fn.mock.calls.map(([actor]) => actor.id).sort()).toEqual(['a1', 'a2']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

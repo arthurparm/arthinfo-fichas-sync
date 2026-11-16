@@ -35,15 +35,27 @@ import { clearFirstSyncPending, shouldSeedDraftFromActor } from './first-link.js
 import { encodePortrait } from './portrait.js';
 import { ImageStore, isImageRef } from './image-store.js';
 import { actorHasNoMaxHp, repairClassHitPoints, startAtFullHitPoints } from './class-hit-points.js';
+import { SyncStatusTracker } from './sync-status.js';
 
-// Utilitário de debounce para agrupar atualizações rápidas
-function debounce(func, wait) {
-  let timeout;
-  return function(...args) {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(this, args), wait);
+// Debounce por Ator (o primeiro argumento): agrupa edições rápidas do mesmo
+// Ator. Um timer único para todos fazia a edição de um Ator cancelar a de
+// outro editado no mesmo segundo, e a primeira nunca era enviada (FDD-75: o
+// painel mostraria "pendente" para sempre).
+export function debounceByActor(func, wait) {
+  const timers = new Map();
+  return function(actor, ...rest) {
+    const key = actor?.id;
+    clearTimeout(timers.get(key));
+    timers.set(key, setTimeout(() => {
+      timers.delete(key);
+      func.call(this, actor, ...rest);
+    }, wait));
   };
 }
+
+// Sem a cópia da ficha vinda da API, nenhuma escrita sai (PUT sem base apaga
+// campos do site). O painel mostra isso como erro, não como "pendente".
+const NO_BASE_DRAFT_MESSAGE = 'Sem a cópia da ficha vinda da API: as edições deste Ator não são enviadas. Recarregue quando a API voltar.';
 
 const KEEP_LOCAL_ADVANCEMENT_TYPES = new Set(['class', 'subclass', 'race', 'background']);
 
@@ -240,8 +252,11 @@ export class SyncManager {
     this.images = new ImageStore(apiClient);
     this._imgOf = (path) => this.images.get(path) ?? compendiumImg(path);
 
-    this.debouncedActorUpdate = debounce(this._executeActorUpdate.bind(this), 1000);
-    this.debouncedItemUpdate = debounce(this._executeItemUpdate.bind(this), 1000);
+    // Estado por Ator para o painel do mestre (FDD-75).
+    this.status = new SyncStatusTracker();
+
+    this.debouncedActorUpdate = debounceByActor(this._executeActorUpdate.bind(this), 1000);
+    this.debouncedItemUpdate = debounceByActor(this._executeItemUpdate.bind(this), 1000);
   }
 
   notifyApiError(action, error, actor) {
@@ -263,6 +278,7 @@ export class SyncManager {
     // catch caso a inicialização falhe (ex: chave inválida), pra uma
     // próxima tentativa não ficar travada indefinidamente.
     this.streams.set(actor.id, { close() {} });
+    this.status.track(actor, draftId);
 
     try {
       try {
@@ -273,6 +289,8 @@ export class SyncManager {
           if (await this._draftIsReallyMissing(draftId)) {
             this.streams.delete(actor.id);
             this.missingDrafts.set(actor.id, actor);
+            this.status.setStream(actor.id, 'closed');
+            this.status.markMissing(actor.id);
             return;
           }
           // O 404 não veio da API (outro servidor na porta, rota errada): não
@@ -284,6 +302,7 @@ export class SyncManager {
           this.lastKnownDraft.set(actor.id, initialDraft);
           // FDD-60: primeiro vínculo de um Ator que já é personagem: o Ator
           // semeia a ficha (o _executeActorUpdate abaixo), não o contrário.
+          const loadCheckpoint = this.status.checkpoint();
           const seedFromActor = shouldSeedDraftFromActor(actor);
           await this._applyRemoteDraft(actor, initialDraft, { seedFromActor });
           // Publica campos só-Foundry (retrato, death saves, condições)
@@ -293,8 +312,10 @@ export class SyncManager {
           await this._executeActorUpdate(actor, draftId);
           await this._executeItemUpdate(actor, draftId);
           await clearFirstSyncPending(actor);
+          this.status.markSynced(actor.id, loadCheckpoint);
         }
       } catch (error) {
+        this.status.markError(actor.id, error);
         this.notifyApiError('carregar', error, actor);
       }
 
@@ -331,6 +352,7 @@ export class SyncManager {
           this.activeSyncs.add(actor.id);
           try {
             await this._applyRemoteDraft(actor, message.data);
+            this.status.markRemoteApplied(actor.id);
           } finally {
             this.activeSyncs.delete(actor.id);
           }
@@ -338,6 +360,7 @@ export class SyncManager {
         (error) => {
           if (error?.status === 404) {
             // Ficha apagada com o Foundry aberto: o stream já não reconecta.
+            this.status.markMissing(actor.id);
             if (!this.missingDrafts.has(actor.id)) {
               this.missingDrafts.set(actor.id, actor);
               ui.notifications.warn(
@@ -346,13 +369,20 @@ export class SyncManager {
             }
             return;
           }
+          if (error?.status === 401) {
+            // Chave revogada ou trocada: o ticket não sai mais e o retry não resolve.
+            this.status.markError(actor.id, 'A API recusou a chave da mesa ao reconectar (revogada?).');
+          }
           console.warn('Arthinfo Fichas | Stream desconectado, tentando reconectar automaticamente:', error);
         },
+        { onStatus: (state) => this.status.setStream(actor.id, state) },
       );
 
       this.streams.set(actor.id, handle);
     } catch (error) {
       this.streams.delete(actor.id);
+      this.status.setStream(actor.id, 'closed');
+      this.status.markError(actor.id, error);
       this.notifyApiError('conectar ao stream de', error, actor);
     }
   }
@@ -375,6 +405,7 @@ export class SyncManager {
     this.lastBiography.delete(actor.id);
     this.portraits.delete(actor.id);
     this.missingDrafts.delete(actor.id);
+    this.status.forget(actor.id);
   }
 
   async _applyRemoteDraft(actor, data, { seedFromActor = false } = {}) {
@@ -592,6 +623,7 @@ export class SyncManager {
     if (!draftId) return;
     if (isDraftClaimedByAnotherActor(actor, draftId)) return;
 
+    this.status.markPending(actor.id, 'actor');
     this.debouncedActorUpdate(actor, draftId);
   }
 
@@ -734,12 +766,14 @@ export class SyncManager {
     base.effects = serializeActorEffects(actor, this._imgOf);
   }
 
-  _saveDraftFromActor(actor, draftId, overlay, errorAction, prepare) {
+  // kind ('actor' | 'items'): qual parte da ficha este save escreve, para o
+  // painel de status (FDD-75) separar pendência e falha de cada uma.
+  _saveDraftFromActor(actor, draftId, overlay, errorAction, prepare, kind) {
     const previous = this.saveQueues.get(actor.id) ?? Promise.resolve();
     const run = previous.then(async () => {
       // Preparo assíncrono (ex.: retrato) roda já dentro da fila, pra não mudar a ordem dos saves.
       await prepare?.();
-      return this._saveDraftFromActorNow(actor, draftId, overlay, errorAction);
+      return this._saveDraftFromActorNow(actor, draftId, overlay, errorAction, kind);
     });
     // A fila segue mesmo se este save falhar; quem chamou ainda recebe o erro.
     const tail = run.catch(() => {});
@@ -776,12 +810,16 @@ export class SyncManager {
     }
   }
 
-  async _saveDraftFromActorNow(actor, draftId, overlay, errorAction) {
+  async _saveDraftFromActorNow(actor, draftId, overlay, errorAction, kind = null) {
+    let checkpoint = null;
     const writeOnce = async () => {
       if (!this.lastKnownDraft.has(actor.id)) {
         console.warn(`Arthinfo Fichas | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+        this.status.markError(actor.id, NO_BASE_DRAFT_MESSAGE, kind);
         return null;
       }
+      // O overlay lê o Ator a partir daqui: edição anterior entra neste envio.
+      checkpoint = this.status.checkpoint();
       const before = this.lastKnownDraft.get(actor.id);
       const base = foundry.utils.deepClone(before);
       overlay(actor, base);
@@ -791,6 +829,7 @@ export class SyncManager {
     try {
       const saved = await writeOnce();
       if (saved) this.lastKnownDraft.set(actor.id, saved);
+      if (checkpoint !== null) this.status.markSynced(actor.id, checkpoint, kind);
     } catch (error) {
       // 409: o site (ou outro Ator) escreveu por cima. Não descarta a mudança
       // do Ator — troca a base pela cópia atual do servidor e reaplica HP/itens.
@@ -799,15 +838,24 @@ export class SyncManager {
         try {
           const saved = await writeOnce();
           if (saved) this.lastKnownDraft.set(actor.id, saved);
+          if (checkpoint !== null) this.status.markSynced(actor.id, checkpoint, kind);
           return;
         } catch (retryError) {
+          this._markSaveFailure(actor.id, retryError, kind);
           this.notifyApiError(errorAction, retryError, actor);
           throw retryError;
         }
       }
+      this._markSaveFailure(actor.id, error, kind);
       this.notifyApiError(errorAction, error, actor);
       throw error;
     }
+  }
+
+  _markSaveFailure(actorId, error, kind) {
+    if (error?.code === 'DRAFT_NOT_FOUND') this.status.markMissing(actorId);
+    else if (error?.status === 409) this.status.markConflict(actorId, error, kind);
+    else this.status.markError(actorId, error, kind);
   }
 
   async _executeActorUpdate(actor, draftId) {
@@ -818,11 +866,12 @@ export class SyncManager {
     // um PUT sem base apagaria concept/identity/equipment no backend.
     if (!this.lastKnownDraft.has(actor.id)) {
       console.warn(`Arthinfo Fichas | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+      this.status.markError(actor.id, NO_BASE_DRAFT_MESSAGE, 'actor');
       return;
     }
     await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
       this._overlayActorOntoDraft(currentActor, base);
-    }, 'salvar', () => this._ensureImages(actor));
+    }, 'salvar', () => this._ensureImages(actor), 'actor');
   }
 
   // Garante as imagens do Ator na API (retrato, itens, condições, efeitos) e,
@@ -854,6 +903,7 @@ export class SyncManager {
     if (!draftId) return;
     if (isDraftClaimedByAnotherActor(actor, draftId)) return;
 
+    this.status.markPending(actor.id, 'items');
     this.debouncedItemUpdate(actor, draftId);
   }
 
@@ -862,11 +912,12 @@ export class SyncManager {
     // conhecida, um PUT aqui apagaria concept/identity/equipment no backend.
     if (!this.lastKnownDraft.has(actor.id)) {
       console.warn(`Arthinfo Fichas | Ignorando atualização de itens de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
+      this.status.markError(actor.id, NO_BASE_DRAFT_MESSAGE, 'items');
       return;
     }
 
     await this._saveDraftFromActor(actor, draftId, (currentActor, base) => {
       this._overlayItemsOntoDraft(currentActor, base);
-    }, 'salvar os itens de', () => this._ensureImages(actor));
+    }, 'salvar os itens de', () => this._ensureImages(actor), 'items');
   }
 }

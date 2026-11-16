@@ -341,6 +341,33 @@ describe('openStream — ticket em vez da chave na URL (FDD-46)', () => {
     expect(onMessage).toHaveBeenCalledWith({ draftId: 'd1', spellSlot: { level: 2, value: 1 } });
   });
 
+  it('onStatus (FDD-75): connecting → open → reconnecting → open → closed', async () => {
+    fetch.mockResolvedValue(ticketResponse());
+    const onStatus = vi.fn();
+    const handle = await makeClient().openStream('d1', () => {}, () => {}, { onStatus });
+    const source = MockEventSource.instances[0];
+
+    source.onopen();
+    source.readyState = 0;
+    source.onerror(new Error('API reiniciando'));
+    source.onopen();
+    handle.close();
+
+    expect(onStatus.mock.calls.map(([state]) => state)).toEqual(['connecting', 'open', 'reconnecting', 'open', 'closed']);
+  });
+
+  it('onStatus (FDD-75): ticket recusado com 403 na reconexão vira closed', async () => {
+    fetch.mockResolvedValueOnce(ticketResponse('tkt-1')).mockResolvedValueOnce(jsonResponse({ error: 'sem acesso' }, 403));
+    const onStatus = vi.fn();
+    await makeClient().openStream('d1', () => {}, () => {}, { onStatus });
+    const source = MockEventSource.instances[0];
+    source.readyState = 2;
+    source.onerror(new Error('401'));
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(onStatus.mock.calls.at(-1)[0]).toBe('closed');
+  });
+
   it('ticket vencido (EventSource CLOSED) → reabre com ticket novo depois do backoff', async () => {
     fetch.mockResolvedValueOnce(ticketResponse('tkt-1')).mockResolvedValueOnce(ticketResponse('tkt-2'));
     const onError = vi.fn();
@@ -402,6 +429,30 @@ describe('openStream — ticket em vez da chave na URL (FDD-46)', () => {
 
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(MockEventSource.instances).toHaveLength(1);
+  });
+});
+
+describe('getHealth e getMesaPresence (FDD-75)', () => {
+  it('getHealth não lança: rede fora vira ok=false', async () => {
+    fetch.mockRejectedValueOnce(new Error('Failed to fetch'));
+    await expect(makeClient().getHealth()).resolves.toMatchObject({ ok: false, error: 'Failed to fetch' });
+  });
+
+  it('getHealth lê versão e estado do banco', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ ok: true, version: '0.0.53', db: 'ok' }));
+    await expect(makeClient().getHealth()).resolves.toMatchObject({ ok: true, version: '0.0.53', db: 'ok' });
+    fetch.mockResolvedValueOnce(jsonResponse({ ok: false, version: '0.0.53', db: 'indisponivel' }, 503));
+    await expect(makeClient().getHealth()).resolves.toMatchObject({ ok: false, db: 'indisponivel', error: 'HTTP 503' });
+  });
+
+  it('getMesaPresence usa a chave no header e propaga o status no erro', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ mesaId: 'm1', online: [] }));
+    await expect(makeClient().getMesaPresence('m1')).resolves.toEqual({ mesaId: 'm1', online: [] });
+    expect(fetch.mock.calls[0][0]).toBe('https://api.runarcana.org/api/mesas/m1/presence');
+    expect(fetch.mock.calls[0][1].headers['X-Mesa-Key']).toBe('ra_mesa_abc');
+
+    fetch.mockResolvedValue(jsonResponse({ error: 'x' }, 403));
+    await expect(makeClient().getMesaPresence('m1')).rejects.toMatchObject({ status: 403 });
   });
 });
 
