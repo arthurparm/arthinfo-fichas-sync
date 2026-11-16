@@ -82,6 +82,46 @@ export class ArthinfoApiClient {
   }
 
   /**
+   * A API está no ar? (FDD-75) `/health` é público e não usa a chave. Devolve
+   * { ok, version, db } sem lançar: rede fora vira ok=false com o motivo.
+   */
+  async getHealth() {
+    try {
+      const res = await this._fetch(`${this.baseUrl}/health`, {}, { timeoutMs: 8000 });
+      let body = null;
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+      return {
+        ok: res.ok && body?.ok === true,
+        status: res.status,
+        version: body?.version ?? null,
+        db: body?.db ?? null,
+        error: res.ok ? null : `HTTP ${res.status}`,
+      };
+    } catch (error) {
+      return { ok: false, status: 0, version: null, db: null, error: error?.message || 'sem resposta' };
+    }
+  }
+
+  /**
+   * Quem da mesa está com a ficha aberta no site agora (FDD-75):
+   * { mesaId, scope, generatedAt, online: [{ userId, displayName, nickname,
+   * role, draftIds, watchingMesa }] }.
+   */
+  async getMesaPresence(mesaId) {
+    const res = await this._fetch(`${this.baseUrl}/api/mesas/${encodeURIComponent(mesaId)}/presence`, {
+      headers: this._headers(),
+    }, { retries: READ_RETRIES });
+    if (!res.ok) {
+      throw apiError(`Falha ao consultar quem está online (HTTP ${res.status}).`, res.status);
+    }
+    return res.json();
+  }
+
+  /**
    * Envia um lote de itens de compêndio pro backend (FDD-16, FDD-74). Sempre
    * com a chave da mesa: os itens ficam no compêndio da mesa, atribuídos ao
    * mestre dela. O módulo não escreve mais no catálogo público (SRD).
@@ -251,13 +291,23 @@ export class ArthinfoApiClient {
    * vale dentro do TTL). Ticket vencido: o servidor responde 401, o
    * EventSource fecha de vez (não reconecta em erro HTTP) e este método
    * reabre com ticket novo, com backoff. Só para quando close() é chamado.
+   *
+   * `onStatus` (FDD-75, painel do mestre) recebe 'connecting' | 'open' |
+   * 'reconnecting' | 'closed' a cada mudança do estado da conexão.
    */
-  async openStream(draftId, onMessage, onError) {
+  async openStream(draftId, onMessage, onError, { onStatus } = {}) {
     if (!this.mesaKey) {
       throw new Error('Chave da mesa não configurada.');
     }
 
     const state = { source: null, timer: null, closed: false, attempts: 0 };
+    const report = (status) => {
+      try {
+        onStatus?.(status);
+      } catch (err) {
+        console.error('Arthinfo Fichas | Erro ao reportar estado do stream:', err);
+      }
+    };
 
     const scheduleReconnect = () => {
       if (state.closed || state.timer) return;
@@ -275,6 +325,7 @@ export class ArthinfoApiClient {
       state.source = source;
       source.onopen = () => {
         state.attempts = 0;
+        report('open');
       };
       source.onmessage = (event) => {
         try {
@@ -324,7 +375,11 @@ export class ArthinfoApiClient {
       }
       source.onerror = (event) => {
         onError?.(event);
-        if (source.readyState === EventSource.CLOSED && state.source === source && !state.closed) {
+        if (state.source !== source || state.closed) return;
+        // CONNECTING: o EventSource nativo já está tentando de novo (queda de
+        // rede, API reiniciando). CLOSED: erro HTTP, reabre com ticket novo.
+        report('reconnecting');
+        if (source.readyState === EventSource.CLOSED) {
           source.close();
           state.source = null;
           scheduleReconnect();
@@ -341,7 +396,10 @@ export class ArthinfoApiClient {
         if (state.closed) return;
         onError?.(error);
         // 403/404: sem acesso ou ficha apagada — insistir não muda nada.
-        if (error?.status === 403 || error?.status === 404) return;
+        if (error?.status === 403 || error?.status === 404) {
+          report('closed');
+          return;
+        }
         scheduleReconnect();
         return;
       }
@@ -350,10 +408,12 @@ export class ArthinfoApiClient {
 
     // A primeira conexão propaga erro pro chamador (ex: chave inválida) em
     // vez de agendar retry silencioso — startListening mostra a notificação.
+    report('connecting');
     open(await this.requestStreamTicket(draftId));
 
     return {
       close() {
+        if (!state.closed) report('closed');
         state.closed = true;
         if (state.timer) {
           clearTimeout(state.timer);

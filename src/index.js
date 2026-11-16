@@ -14,6 +14,7 @@ import { runLegacyMigration } from './legacy-migration.js';
 import { isCachedSpell } from './cached-spell.js';
 import { MODULE_ID, clearFlag, readFlag } from './module-id.js';
 import { BACKEND_URL } from './backend-url.js';
+import { getStatusPanelClass } from './status-panel.js';
 
 let apiClient = null;
 let syncManager = null;
@@ -34,6 +35,31 @@ function openCompendiumSyncDialog() {
     baseUrl: BACKEND_URL,
   });
   new CompendiumSyncDialog(client, { imageStore: syncManager?.images }).render();
+}
+
+// Painel de status do mestre (FDD-75). Uma janela só: reabrir traz a mesma pra frente.
+let statusPanel = null;
+function openStatusPanel() {
+  if (!game.user.isGM) {
+    ui.notifications.warn('Arthinfo Fichas: o painel de status é só do mestre.');
+    return;
+  }
+  const Panel = getStatusPanelClass(() => ({ apiClient, syncManager }));
+  if (!statusPanel) statusPanel = new Panel();
+  statusPanel.render({ force: true });
+}
+
+class StatusPanelMenuApp extends FormApplication {
+  constructor() {
+    super({});
+  }
+
+  render() {
+    openStatusPanel();
+    return this;
+  }
+
+  async _updateObject() {}
 }
 
 async function unlinkActor(actor, message) {
@@ -173,6 +199,15 @@ Hooks.once('init', () => {
     restricted: true
   });
 
+  game.settings.registerMenu(MODULE_ID, 'statusPanelMenu', {
+    name: 'Status da sincronização',
+    label: 'Abrir painel',
+    hint: 'Mostra se a API está no ar, a conexão de cada Ator vinculado, a última sincronização, o erro mais recente e quem da mesa está com a ficha aberta no site.',
+    icon: 'fas fa-signal',
+    type: StatusPanelMenuApp,
+    restricted: true
+  });
+
 });
 
 Hooks.once('ready', async () => {
@@ -181,7 +216,7 @@ Hooks.once('ready', async () => {
   // do Foundry: game.modules.get(MODULE_ID).api.openCompendiumSync()
   const thisModule = game.modules.get(MODULE_ID);
   if (thisModule) {
-    thisModule.api = { openCompendiumSync: openCompendiumSyncDialog };
+    thisModule.api = { openCompendiumSync: openCompendiumSyncDialog, openStatusPanel };
   }
 
   // Traz vínculos e configurações do id antigo ('runarcana-sync'). Precisa vir
@@ -329,4 +364,19 @@ Hooks.on('getHeaderControlsActorSheetV2', (app, controls) => {
     class: 'arthinfo-fichas-sync-btn',
     onClick: () => openDraftSelector(actor)
   });
+});
+
+// Atalho no rodapé da aba Atores (só mestre) para o painel de status (FDD-75).
+// v13+: html é HTMLElement; v1 legada mandava jQuery.
+Hooks.on('renderActorDirectory', (app, html) => {
+  if (!game.user.isGM) return;
+  const root = html instanceof HTMLElement ? html : html?.[0];
+  if (!root || root.querySelector('.arthinfo-fichas-status-btn')) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'arthinfo-fichas-status-btn';
+  button.innerHTML = '<i class="fas fa-signal"></i> Arthinfo: status';
+  button.addEventListener('click', () => openStatusPanel());
+  const footer = root.querySelector('.directory-footer') ?? root;
+  footer.append(button);
 });
