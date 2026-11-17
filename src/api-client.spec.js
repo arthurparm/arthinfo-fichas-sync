@@ -508,3 +508,21 @@ describe('timeout das requisições (FDD-42)', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('postFoundryPresence (FDD-125)', () => {
+  it('manda o estado com a chave da mesa e repassa keepalive', async () => {
+    fetch.mockResolvedValue(jsonResponse({ state: 'offline' }));
+    await makeClient().postFoundryPresence('offline', { keepalive: true });
+    const [url, options] = fetch.mock.calls[0];
+    expect(url).toBe('https://api.runarcana.org/api/foundry-presence');
+    expect(options.method).toBe('POST');
+    expect(options.keepalive).toBe(true);
+    expect(options.headers['X-Mesa-Key']).toBe('ra_mesa_abc');
+    expect(JSON.parse(options.body)).toEqual({ state: 'offline' });
+  });
+
+  it('propaga o status HTTP no erro', async () => {
+    fetch.mockResolvedValue(jsonResponse({}, 404));
+    await expect(makeClient().postFoundryPresence('online')).rejects.toMatchObject({ status: 404 });
+  });
+});

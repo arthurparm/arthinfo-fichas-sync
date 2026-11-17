@@ -15,6 +15,7 @@ import { isCachedSpell } from './cached-spell.js';
 import { MODULE_ID, clearFlag, readFlag } from './module-id.js';
 import { BACKEND_URL } from './backend-url.js';
 import { getStatusPanelClass } from './status-panel.js';
+import { startPresenceHeartbeat } from './presence-heartbeat.js';
 
 let apiClient = null;
 let syncManager = null;
@@ -244,6 +245,12 @@ Hooks.once('ready', async () => {
     thisModule.api.apiClient = apiClient;
     thisModule.api.syncManager = syncManager;
   }
+
+  // FDD-125: o site avisa o jogador quando este sinal para (mundo fechado).
+  startPresenceHeartbeat(apiClient, {
+    isActiveGM: () => game.user?.id === game.users?.activeGM?.id,
+    otherGmActive: () => game.users.some(user => user.isGM && user.active && user.id !== game.user.id),
+  });
 
   // Sem await: a pergunta não segura a API pública do módulo (macros).
   offerUnlinkMissingDrafts().catch(error => console.warn('Arthinfo Fichas | Falha ao oferecer o desvínculo:', error));
