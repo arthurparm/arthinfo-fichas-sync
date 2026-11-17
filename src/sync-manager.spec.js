@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LEGACY_MODULE_ID, MODULE_ID } from './module-id.js';
-import { SyncManager, debounceByActor } from './sync-manager.js';
+import { SyncManager, debounceByActor, newerDraft } from './sync-manager.js';
+import { UNSUPPORTED } from './draft-diff.js';
 
 function getProperty(object, path) {
   return path.split('.').reduce((value, key) => (value === undefined || value === null ? undefined : value[key]), object);
@@ -1175,5 +1176,220 @@ describe('debounceByActor (FDD-75)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('_applyRemoteDraft com a ficha anterior: só o que mudou no site (FDD-162)', () => {
+  function actorWithItems(items) {
+    const actor = makeActor();
+    actor.items = { contents: items };
+    actor.createEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.updateEmbeddedDocuments = vi.fn(async () => undefined);
+    actor.deleteEmbeddedDocuments = vi.fn(async () => undefined);
+    return actor;
+  }
+
+  function localItem(id, sourceId, name = 'Adaga') {
+    return {
+      id,
+      type: 'weapon',
+      getFlag: (scope, key) => (key === 'sourceId' ? sourceId : undefined),
+      toObject: () => ({ _id: id, name, type: 'weapon', img: 'icons/x.webp', system: { quantity: 1 } }),
+    };
+  }
+
+  it('edição local do PV (Ator 9) não é desfeita por ficha que só mudou o PV temporário', async () => {
+    const actor = actorWithItems([]);
+    actor.system.attributes.hp.value = 9;
+    const previous = { derivedStats: { maxHp: 12, currentHp: 12, tempHp: 0 } };
+    const remote = { derivedStats: { maxHp: 12, currentHp: 12, tempHp: 3 } };
+
+    await new SyncManager({})._applyRemoteDraft(actor, remote, { previous });
+
+    const [payload] = actor.update.mock.calls[0];
+    expect(payload).toEqual({ 'system.attributes.hp.temp': 3 });
+  });
+
+  it('campo que o site mudou chega ao Ator mesmo com valor local diferente', async () => {
+    const actor = actorWithItems([]);
+    actor.system.attributes.hp.value = 9;
+    const previous = { derivedStats: { maxHp: 12, currentHp: 12, tempHp: 0 } };
+    const remote = { derivedStats: { maxHp: 12, currentHp: 5, tempHp: 0 } };
+
+    await new SyncManager({})._applyRemoteDraft(actor, remote, { previous });
+
+    expect(actor.update.mock.calls[0][0]).toEqual({ 'system.attributes.hp.value': 5 });
+  });
+
+  it('sem a ficha anterior (carga inicial), aplica a ficha inteira como antes', async () => {
+    const actor = actorWithItems([]);
+    actor.system.attributes.hp.value = 9;
+    await new SyncManager({})._applyRemoteDraft(actor, { derivedStats: { maxHp: 12, currentHp: 12, tempHp: 0 } });
+    expect(actor.update.mock.calls[0][0]).toMatchObject({ 'system.attributes.hp.value': 12 });
+  });
+
+  it('item que o site não mexeu não é revertido nem recriado no Ator', async () => {
+    const actor = actorWithItems([localItem('l1', 's1', 'Adaga renomeada no Foundry')]);
+    const siteItem = { _id: 's1', name: 'Adaga', type: 'weapon', system: { quantity: 1 } };
+    const apagadoNoFoundry = { _id: 's2', name: 'Corda', type: 'loot', system: {} };
+    const previous = { items: [siteItem, apagadoNoFoundry] };
+    const remote = { items: [siteItem, apagadoNoFoundry] };
+
+    await new SyncManager({})._applyRemoteDraft(actor, remote, { previous });
+
+    expect(actor.updateEmbeddedDocuments).not.toHaveBeenCalled();
+    expect(actor.createEmbeddedDocuments).not.toHaveBeenCalled();
+  });
+
+  it('só sai do Ator o item que o site apagou; item local ainda não enviado fica', async () => {
+    const actor = actorWithItems([localItem('l1', 's1'), localItem('l2', 's-novo-local')]);
+    const previous = { items: [{ _id: 's1', name: 'Adaga', type: 'weapon', system: { quantity: 1 } }] };
+    const remote = { items: [] };
+
+    await new SyncManager({})._applyRemoteDraft(actor, remote, { previous });
+
+    expect(actor.deleteEmbeddedDocuments).toHaveBeenCalledWith('Item', ['l1']);
+  });
+});
+
+describe('base do "o que mudou no site" (FDD-162)', () => {
+  it('newerDraft fica com a versão mais nova pelo updatedAt', () => {
+    const v1 = { updatedAt: '2026-11-17T10:00:00.000Z' };
+    const v2 = { updatedAt: '2026-11-17T10:00:01.000Z' };
+    expect(newerDraft(v2, v1)).toBe(v2);
+    expect(newerDraft(v1, v2)).toBe(v2);
+    expect(newerDraft(null, v1)).toBe(v1);
+    expect(newerDraft(v1, undefined)).toBe(v1);
+    expect(newerDraft({ updatedAt: 't0' }, { updatedAt: 'x' }).updatedAt).toBe('x');
+  });
+
+  function managerRecordingApplies() {
+    const manager = new SyncManager({});
+    const calls = [];
+    manager._applyRemoteDraft = vi.fn(async (_actor, data, { previous }) => {
+      calls.push({ data, previous });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    return { manager, calls };
+  }
+
+  it('evento atrasado: aplica a ficha mais nova conhecida contra a última aplicada', async () => {
+    const { manager, calls } = managerRecordingApplies();
+    const actor = { id: 'a1', name: 'A' };
+    const applied = { updatedAt: '2026-11-17T10:00:01.000Z', items: [] };
+    const v3 = { updatedAt: '2026-11-17T10:00:03.000Z', items: [{ _id: 'x' }] }; // veio do 409/save, o Ator ainda não tem
+    manager.lastAppliedDraft.set('a1', applied);
+    manager.lastKnownDraft.set('a1', newerDraft(v3, { updatedAt: '2026-11-17T10:00:02.000Z', items: [{ _id: 'x' }] }));
+
+    await manager._queueRemoteApply(actor);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].data).toBe(v3);
+    expect(calls[0].previous).toBe(applied);
+    expect(manager.lastAppliedDraft.get('a1')).toBe(v3);
+  });
+
+  it('fichas seguidas não são aplicadas em paralelo, e a segunda usa a primeira como base', async () => {
+    const manager = new SyncManager({});
+    let running = 0;
+    let maxRunning = 0;
+    const previousSeen = [];
+    manager._applyRemoteDraft = vi.fn(async (_actor, data, { previous }) => {
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      previousSeen.push(previous?.updatedAt ?? null);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      running -= 1;
+    });
+    const actor = { id: 'a1', name: 'A' };
+    manager.lastKnownDraft.set('a1', { updatedAt: 'v1' });
+    const first = manager._queueRemoteApply(actor);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    manager.lastKnownDraft.set('a1', { updatedAt: 'v2' });
+    const second = manager._queueRemoteApply(actor);
+    await Promise.all([first, second]);
+    expect(maxRunning).toBe(1);
+    expect(previousSeen).toEqual([null, 'v1']);
+    expect(manager.lastAppliedDraft.get('a1').updatedAt).toBe('v2');
+  });
+
+  it('falha no meio não marca a ficha como aplicada', async () => {
+    const manager = new SyncManager({});
+    manager._applyRemoteDraft = vi.fn(async () => {
+      throw new Error('criação de item recusada');
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    manager.lastKnownDraft.set('a1', { updatedAt: 'v2' });
+    manager.lastAppliedDraft.set('a1', { updatedAt: 'v1' });
+    await expect(manager._queueRemoteApply({ id: 'a1', name: 'A' })).rejects.toThrow();
+    expect(manager.lastAppliedDraft.get('a1').updatedAt).toBe('v1');
+    error.mockRestore();
+  });
+
+  it('o que este cliente gravou entra na base aplicada (patch sobre a base atual)', () => {
+    const manager = new SyncManager({});
+    const applied = { derivedStats: { currentHp: 17, tempHp: 0 } };
+    manager.lastAppliedDraft.set('a1', applied);
+    manager._recordOwnWrite('a1', { patch: { set: { 'derivedStats.currentHp': 16 } }, applied, target: null });
+    expect(manager.lastAppliedDraft.get('a1').derivedStats).toEqual({ currentHp: 16, tempHp: 0 });
+    manager._recordOwnWrite('a1', { patch: null });
+    expect(manager.lastAppliedDraft.get('a1').derivedStats.currentHp).toBe(16);
+  });
+
+  it('PUT (sem patch): usa a projeção do Ator se a base não andou; se andou, zera a base', () => {
+    const manager = new SyncManager({});
+    const applied = { v: 1 };
+    manager.lastAppliedDraft.set('a1', applied);
+    manager._recordOwnWrite('a1', { patch: UNSUPPORTED, applied, target: { v: 'ator' } });
+    expect(manager.lastAppliedDraft.get('a1')).toEqual({ v: 'ator' });
+    manager._recordOwnWrite('a1', { patch: UNSUPPORTED, applied, target: { v: 'x' } });
+    expect(manager.lastAppliedDraft.has('a1')).toBe(false);
+  });
+});
+
+describe('save manda só o que o Ator mudou (FDD-162)', () => {
+  function setup() {
+    const actor = makeActor();
+    actor.name = 'Lyra';
+    actor.img = '';
+    actor.classes = {};
+    actor.items = [];
+    const api = {
+      patchDraft: vi.fn(async (_id, _patch, ifMatch) => ({ id: 'draft-1', updatedAt: `after-${ifMatch}` })),
+      saveDraft: vi.fn(),
+    };
+    const manager = new SyncManager(api);
+    const applied = { id: 'draft-1', updatedAt: 't0', concept: {}, identity: {}, description: {}, items: [] };
+    manager._overlayActorOntoDraft(actor, applied);
+    manager._overlayItemsOntoDraft(actor, applied);
+    return { actor, api, manager, applied };
+  }
+
+  it('campo que o site mudou e o Ator ainda não recebeu não volta com o valor velho', async () => {
+    const { actor, api, manager, applied } = setup();
+    manager.lastAppliedDraft.set(actor.id, applied);
+    // Servidor já tem o tempHp 5 do site (veio de um 409, por exemplo).
+    const server = structuredClone(applied);
+    server.updatedAt = 't1';
+    server.derivedStats.tempHp = 5;
+    manager.lastKnownDraft.set(actor.id, server);
+    actor.system.attributes.hp.value = 7;
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    const [, patch, ifMatch] = api.patchDraft.mock.calls[0];
+    expect(patch).toEqual({ set: { 'derivedStats.currentHp': 7 } });
+    expect(ifMatch).toBe('t1');
+    expect(manager.lastAppliedDraft.get(actor.id).derivedStats.currentHp).toBe(7);
+  });
+
+  it('Ator igual à base aplicada: não chama a API mesmo com o servidor mais novo', async () => {
+    const { actor, api, manager, applied } = setup();
+    manager.lastAppliedDraft.set(actor.id, applied);
+    manager.lastKnownDraft.set(actor.id, { ...structuredClone(applied), updatedAt: 't1', title: 'mudado no site' });
+
+    await manager._executeActorUpdate(actor, 'draft-1');
+
+    expect(api.patchDraft).not.toHaveBeenCalled();
   });
 });

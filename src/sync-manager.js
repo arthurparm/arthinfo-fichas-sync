@@ -13,7 +13,7 @@ import {
   foundrySkillValueToProficiencyLevel,
   proficiencyLevelToFoundrySkillValue,
 } from './data-mapper.js';
-import { UNSUPPORTED, buildPatch } from './draft-diff.js';
+import { UNSUPPORTED, applyPatchLocally, buildPatch, deepEqual } from './draft-diff.js';
 import { findItemsByCatalogKeys, compendiumImg } from './compendium-sync.js';
 import { postSiteRollToChat } from './chat-roll.js';
 import { consumeSiteHitDieRoll } from './consume-hit-die.js';
@@ -56,6 +56,17 @@ export function debounceByActor(func, wait) {
 // Sem a cópia da ficha vinda da API, nenhuma escrita sai (PUT sem base apaga
 // campos do site). O painel mostra isso como erro, não como "pendente".
 const NO_BASE_DRAFT_MESSAGE = 'Sem a cópia da ficha vinda da API: as edições deste Ator não são enviadas. Recarregue quando a API voltar.';
+
+// A versão mais nova do servidor entre duas fichas (pelo updatedAt, ISO).
+// Evento SSE atrasado não pode fazer a base voltar no tempo (FDD-162).
+export function newerDraft(known, incoming) {
+  if (!known) return incoming;
+  if (!incoming) return known;
+  const a = Date.parse(known.updatedAt);
+  const b = Date.parse(incoming.updatedAt);
+  // Sem data comparável, fica a que chegou (comportamento anterior).
+  return Number.isFinite(a) && Number.isFinite(b) && a > b ? known : incoming;
+}
 
 const KEEP_LOCAL_ADVANCEMENT_TYPES = new Set(['class', 'subclass', 'race', 'background']);
 
@@ -238,6 +249,17 @@ export class SyncManager {
     // que o Foundry não conhece (concept, identity, equipment, etc.) ao
     // gravar via PUT, que substitui o registro inteiro no backend.
     this.lastKnownDraft = new Map();
+    // Ficha que o Ator de fato reflete (FDD-162): a última aplicada nele com
+    // sucesso, mais o que este cliente gravou. É a base do "o que mudou no
+    // site". Separada de lastKnownDraft porque esta também recebe a ficha de
+    // um 409 (error.current) que o Ator ainda não recebeu.
+    this.lastAppliedDraft = new Map();
+    // Fila por Ator para as fichas vindas do SSE: o EventSource não espera o
+    // handler, e duas aplicações em paralelo se atropelavam (itens órfãos).
+    this.applyQueues = new Map();
+    // Escritas deste cliente concluídas enquanto uma aplicação da fila estava
+    // em andamento: reaplicadas sobre o alvo dela no fim (FDD-162).
+    this.ownWritesDuringApply = new Map();
     // Última biografia do Ator vista por sync (FDD-50) — ver mergeFoundryBiography.
     this.lastBiography = new Map();
     // Cauda de PUTs por ator: o debounce do Ator e o de itens são separados,
@@ -305,6 +327,7 @@ export class SyncManager {
           const loadCheckpoint = this.status.checkpoint();
           const seedFromActor = shouldSeedDraftFromActor(actor);
           await this._applyRemoteDraft(actor, initialDraft, { seedFromActor });
+          this.lastAppliedDraft.set(actor.id, initialDraft);
           // Publica campos só-Foundry (retrato, death saves, condições)
           // e os itens do Ator (classe/raça/feats) que o draft remoto
           // ainda não tem — sem isso o cabeçalho da ficha fica com a
@@ -343,19 +366,14 @@ export class SyncManager {
             await applySpellSlot(actor, message.spellSlot);
             return;
           }
+          this.lastKnownDraft.set(actor.id, newerDraft(this.lastKnownDraft.get(actor.id), message.data));
           if (message.sourceClientId === this.apiClient.clientId) {
-            // Eco da própria escrita deste cliente: já refletido localmente.
-            this.lastKnownDraft.set(actor.id, message.data);
+            // Eco da própria escrita deste cliente: já refletido localmente
+            // (e projetado em lastAppliedDraft no save).
             return;
           }
-          this.lastKnownDraft.set(actor.id, message.data);
-          this.activeSyncs.add(actor.id);
-          try {
-            await this._applyRemoteDraft(actor, message.data);
-            this.status.markRemoteApplied(actor.id);
-          } finally {
-            this.activeSyncs.delete(actor.id);
-          }
+          // Falha já vai para o log da fila; o EventSource não espera esta promise.
+          await this._queueRemoteApply(actor).catch(() => {});
         },
         (error) => {
           if (error?.status === 404) {
@@ -402,14 +420,103 @@ export class SyncManager {
       this.streams.delete(actor.id);
     }
     this.lastKnownDraft.delete(actor.id);
+    this.lastAppliedDraft.delete(actor.id);
+    this.applyQueues.delete(actor.id);
     this.lastBiography.delete(actor.id);
     this.portraits.delete(actor.id);
     this.missingDrafts.delete(actor.id);
     this.status.forget(actor.id);
   }
 
-  async _applyRemoteDraft(actor, data, { seedFromActor = false } = {}) {
+  /**
+   * Aplica no Ator a ficha mais nova conhecida, uma de cada vez por Ator.
+   * Só o que mudou no site em relação a lastAppliedDraft vai para o Ator
+   * (FDD-162): uma edição do Foundry ainda não enviada não é desfeita por uma
+   * ficha que trouxe o valor antigo desse campo.
+   */
+  _queueRemoteApply(actor) {
+    const previousRun = this.applyQueues.get(actor.id) ?? Promise.resolve();
+    const run = previousRun.then(async () => {
+      const target = this.lastKnownDraft.get(actor.id);
+      if (!target) return;
+      const previous = this.lastAppliedDraft.get(actor.id) ?? null;
+      const ownWrites = [];
+      this.ownWritesDuringApply.set(actor.id, ownWrites);
+      this.activeSyncs.add(actor.id);
+      try {
+        await this._applyRemoteDraft(actor, target, { previous });
+        // Só depois de aplicar: se falhar no meio, a próxima ficha reaplica.
+        // O que este cliente gravou durante a aplicação continua valendo.
+        let applied = target;
+        for (const patch of ownWrites) {
+          if (patch === UNSUPPORTED) {
+            applied = null;
+            break;
+          }
+          applied = applyPatchLocally(applied, patch);
+        }
+        if (applied) this.lastAppliedDraft.set(actor.id, applied);
+        else this.lastAppliedDraft.delete(actor.id);
+        this.status.markRemoteApplied(actor.id);
+      } finally {
+        this.activeSyncs.delete(actor.id);
+        this.ownWritesDuringApply.delete(actor.id);
+      }
+    });
+    const tail = run.catch((error) => {
+      console.error(`Arthinfo Fichas | Falha ao aplicar a ficha do site em ${actor.name}:`, error);
+    });
+    this.applyQueues.set(actor.id, tail);
+    tail.then(() => {
+      if (this.applyQueues.get(actor.id) === tail) this.applyQueues.delete(actor.id);
+    });
+    return run;
+  }
+
+  /**
+   * O que o Ator mudou em relação à ficha que ele reflete (FDD-162). É isso, e
+   * só isso, que um save manda: um campo que o Ator não mexeu não leva o valor
+   * velho por cima do que o site gravou e o Ator ainda não recebeu.
+   * Devolve { patch, target } (target = a base aplicada com o Ator por cima),
+   * ou null sem base aplicada.
+   */
+  _localChanges(actor, overlay) {
+    const applied = this.lastAppliedDraft.get(actor.id);
+    if (!applied) return null;
+    const target = foundry.utils.deepClone(applied);
+    overlay(actor, target);
+    return { patch: buildPatch(applied, target), target, applied };
+  }
+
+  // O que este cliente acabou de gravar já está no Ator: entra em
+  // lastAppliedDraft para a próxima ficha do site não "devolver" esse valor
+  // por cima de uma edição mais nova ainda na fila (FDD-162).
+  _recordOwnWrite(actorId, local) {
+    if (!local || local.patch === null) return;
+    this.ownWritesDuringApply.get(actorId)?.push(local.patch);
+    const current = this.lastAppliedDraft.get(actorId);
+    if (!current) return;
+    if (local.patch === UNSUPPORTED) {
+      // Sem patch: a projeção do Ator só vale se a base não andou desde o envio.
+      if (current === local.applied) this.lastAppliedDraft.set(actorId, local.target);
+      else this.lastAppliedDraft.delete(actorId);
+      return;
+    }
+    this.lastAppliedDraft.set(actorId, applyPatchLocally(current, local.patch));
+  }
+
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.seedFromActor] primeiro vínculo: o Ator semeia a ficha (FDD-60).
+   * @param {object|null} [options.previous] ficha que o Ator já reflete (lastAppliedDraft). Com ela,
+   *   só o que mudou no site entre as duas é aplicado no Ator (FDD-162): o valor
+   *   que o site não mexeu não desfaz uma edição do Foundry que ainda está na
+   *   fila. Sem ela (carga inicial), a ficha inteira é aplicada.
+   */
+  async _applyRemoteDraft(actor, data, { seedFromActor = false, previous = null } = {}) {
     const updateData = {};
+    const changedOnSite = (path) =>
+      !previous || !deepEqual(foundry.utils.getProperty(previous, path), foundry.utils.getProperty(data, path));
     // Antes de criar/atualizar itens: se o Ator ainda não tem PV máximo, quem
     // der PV a ele (classe nova ou reparada) também o deixa com a vida cheia.
     const hadNoMaxHp = actorHasNoMaxHp(actor);
@@ -423,6 +530,7 @@ export class SyncManager {
       // Ficha sem PV máximo (0 herdado de Ator sem classe): o hp.value dela
       // não é um PV real e não pode zerar o Ator ao reconectar (FDD-90).
       if (siteHasNoHp && foundryPath.startsWith('system.attributes.hp.')) continue;
+      if (!changedOnSite(firebasePath)) continue;
       const remoteValue = foundry.utils.getProperty(data, firebasePath);
       if (NON_BLANK_FOUNDRY_PATHS.has(foundryPath) && (typeof remoteValue !== 'string' || !remoteValue.trim())) continue;
       const localValue = foundry.utils.getProperty(actor, foundryPath);
@@ -433,6 +541,7 @@ export class SyncManager {
 
     // 2. Processamento Específico: Atributos com Bônus Racial
     (seedFromActor ? [] : ABILITY_KEYS).forEach(({ foundry: ab, firebase: fbKey }) => {
+      if (!changedOnSite(`attributes.scores.${fbKey}`) && !changedOnSite(`attributes.originBonuses.${fbKey}`)) return;
       const currentVal = actor.system.abilities?.[ab]?.value || 0;
       const baseScore = foundry.utils.getProperty(data, `attributes.scores.${fbKey}`) || 10;
       const racialBonus = foundry.utils.getProperty(data, `attributes.originBonuses.${fbKey}`) || 0;
@@ -445,6 +554,7 @@ export class SyncManager {
 
     // 2b. Proficiência de resistência (0/1 no Foundry, booleano no site)
     (seedFromActor ? [] : ABILITY_KEYS).forEach(({ foundry: ab, firebase: fbKey }) => {
+      if (!changedOnSite(`proficiencies.savingThrows.${fbKey}`)) return;
       const remoteProficient = foundry.utils.getProperty(data, `proficiencies.savingThrows.${fbKey}`);
       if (remoteProficient === undefined) return;
       const remoteVal = remoteProficient ? 1 : 0;
@@ -456,6 +566,7 @@ export class SyncManager {
 
     // 2c. Proficiência de perícia (0/0.5/1/2 no Foundry <-> false/'half'/true/'expertise' no site, FDD-10)
     (seedFromActor ? [] : SKILL_KEY_MAP).forEach(({ foundry: sk, id }) => {
+      if (!changedOnSite(`proficiencies.skills.${id}`)) return;
       const remoteLevel = foundry.utils.getProperty(data, `proficiencies.skills.${id}`);
       if (remoteLevel === undefined) return;
       const remoteVal = proficiencyLevelToFoundrySkillValue(remoteLevel);
@@ -474,6 +585,14 @@ export class SyncManager {
       // Cache de magia do dnd5e é estado do Foundry: nunca vem do site (FDD-117).
       const remoteItems = data.items.filter((item) => !isCachedSpell(item));
       const localItems = actor.items.contents;
+      // Com a ficha anterior (FDD-162): item que o site não mexeu não é
+      // recriado nem revertido no Ator, e só sai do Ator o item que o site
+      // apagou (estava na anterior e sumiu). Sem ela, vale a ficha inteira.
+      const previousItems = previous && Array.isArray(previous.items)
+        ? new Map(previous.items.map((item) => [item._id, item]))
+        : null;
+      const unchangedOnSite = (rItem) =>
+        previousItems !== null && previousItems.has(rItem._id) && deepEqual(previousItems.get(rItem._id), rItem);
 
       // Dote já no Ator: _id do draft → id local. Classe não entra.
       // "<compendiumId>.adv" (o que o site grava hoje) não é _id de dote e fica.
@@ -484,6 +603,7 @@ export class SyncManager {
       const toDelete = [];
 
       for (const rItem of remoteItems) {
+        if (unchangedOnSite(rItem)) continue;
         // Busca pelo ID original salvo nas flags, ou pelo ID direto
         const lItem = localItems.find(i =>
           readFlag(i, 'sourceId') === rItem._id || i.id === rItem._id
@@ -521,7 +641,8 @@ export class SyncManager {
         const sourceId = readFlag(lItem, 'sourceId');
         if (!sourceId) continue;
         const existsRemote = remoteItems.some(i => i._id === sourceId);
-        if (!existsRemote) {
+        const deletedOnSite = previousItems === null || previousItems.has(sourceId);
+        if (!existsRemote && deletedOnSite) {
           toDelete.push(lItem.id);
         }
       }
@@ -570,7 +691,7 @@ export class SyncManager {
     // draft (armorId/weaponIds/gearIds) bater com a flag catalogKey de um
     // item de compêndio já sincronizado. Sem correspondência, não faz nada
     // (comportamento passivo, sem regressão).
-    if (data.equipment) {
+    if (data.equipment && changedOnSite('equipment')) {
       await this._applyEquipmentFromCompendium(actor, data.equipment);
     }
   }
@@ -812,6 +933,7 @@ export class SyncManager {
 
   async _saveDraftFromActorNow(actor, draftId, overlay, errorAction, kind = null) {
     let checkpoint = null;
+    let local = null;
     const writeOnce = async () => {
       if (!this.lastKnownDraft.has(actor.id)) {
         console.warn(`Arthinfo Fichas | Ignorando atualização de ${actor.name}: ainda não temos uma cópia da ficha vinda do backend.`);
@@ -821,23 +943,46 @@ export class SyncManager {
       // O overlay lê o Ator a partir daqui: edição anterior entra neste envio.
       checkpoint = this.status.checkpoint();
       const before = this.lastKnownDraft.get(actor.id);
-      const base = foundry.utils.deepClone(before);
-      overlay(actor, base);
-      return this._persistDraft(draftId, before, base);
+      // O overlay marca a biografia do Ator como "vista" (mergeFoundryBiography):
+      // guardar o estado antes, para o overlay do fallback não perder a edição.
+      const hadBiography = this.lastBiography.has(actor.id);
+      const seenBiography = this.lastBiography.get(actor.id);
+      local = this._localChanges(actor, overlay);
+      if (local && local.patch === null) return null; // o Ator não mudou nada
+      // Com base aplicada e patch calculável: só a mudança do Ator, por cima da
+      // versão do servidor. Sem isso, o overlay inteiro (comportamento antigo).
+      let next;
+      if (local && local.patch !== UNSUPPORTED) {
+        next = applyPatchLocally(before, local.patch);
+      } else {
+        if (local) {
+          if (hadBiography) this.lastBiography.set(actor.id, seenBiography);
+          else this.lastBiography.delete(actor.id);
+        }
+        next = foundry.utils.deepClone(before);
+        overlay(actor, next);
+      }
+      return this._persistDraft(draftId, before, next);
     };
 
     try {
       const saved = await writeOnce();
-      if (saved) this.lastKnownDraft.set(actor.id, saved);
+      if (saved) {
+        this.lastKnownDraft.set(actor.id, newerDraft(this.lastKnownDraft.get(actor.id), saved));
+        this._recordOwnWrite(actor.id, local);
+      }
       if (checkpoint !== null) this.status.markSynced(actor.id, checkpoint, kind);
     } catch (error) {
       // 409: o site (ou outro Ator) escreveu por cima. Não descarta a mudança
       // do Ator — troca a base pela cópia atual do servidor e reaplica HP/itens.
       if (error?.status === 409 && error.current) {
-        this.lastKnownDraft.set(actor.id, error.current);
+        this.lastKnownDraft.set(actor.id, newerDraft(this.lastKnownDraft.get(actor.id), error.current));
         try {
           const saved = await writeOnce();
-          if (saved) this.lastKnownDraft.set(actor.id, saved);
+          if (saved) {
+            this.lastKnownDraft.set(actor.id, newerDraft(this.lastKnownDraft.get(actor.id), saved));
+            this._recordOwnWrite(actor.id, local);
+          }
           if (checkpoint !== null) this.status.markSynced(actor.id, checkpoint, kind);
           return;
         } catch (retryError) {
