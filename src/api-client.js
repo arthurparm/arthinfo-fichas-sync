@@ -106,6 +106,22 @@ export class ArthinfoApiClient {
     }
   }
 
+  /** Sinal de vida do Foundry para a API (FDD-125): 'online' ou 'offline'. */
+  async postFoundryPresence(state, { keepalive = false } = {}) {
+    // FDD-125: avisa a API que o Foundry está vivo ('online') ou fechando
+    // ('offline'). A mesa vem da chave; o site mostra o aviso aos jogadores.
+    const res = await this._fetch(`${this.baseUrl}/api/foundry-presence`, {
+      method: 'POST',
+      headers: this._headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ state }),
+      keepalive,
+    });
+    if (!res.ok) {
+      throw apiError(`Falha ao informar a presença do Foundry (HTTP ${res.status}).`, res.status);
+    }
+    return res.json();
+  }
+
   /**
    * Quem da mesa está com a ficha aberta no site agora (FDD-75):
    * { mesaId, scope, generatedAt, online: [{ userId, displayName, nickname,
